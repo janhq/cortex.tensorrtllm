@@ -63,14 +63,14 @@ namespace
 void runBenchmark()
 {
     Tokenizer nitro_tokenizer("./tokenizer.model");
-    std::vector<int> text_input = nitro_tokenizer.encode("A long and sad story about the Abyss: ");
+    std::vector<int> text_input = nitro_tokenizer.encode("How to survive in the Abyss chapter 1:\n\n ");
 
     // Fixed settings
     const std::string modelName = "mistral";
     const std::filesystem::path engineDir = "/app/mistral_engine_2/";
     const int batchSize = 1;
     const int inputLen = text_input.size();
-    const std::vector<int> inOutLen = {inputLen, 2938}; // input_length, output_length
+    const std::vector<int> inOutLen = {inputLen, 500}; // input_length, output_length
 
     // Logger setup
     auto logger = std::make_shared<TllmLogger>();
@@ -158,7 +158,14 @@ void runBenchmark()
             if (lastNonZeroIndex != -1)
             {
                 int outTok = outputIdsHost[lastNonZeroIndex];
-                std::cout << nitro_tokenizer.decodeWithSpace(outTok);
+                if (outTok == 13)
+                {
+                    std::cout << "\n";
+                }
+                else
+                {
+                    std::cout << nitro_tokenizer.decodeWithSpace(outTok);
+                }
             }
         }
     };
