@@ -29,9 +29,10 @@ project(tensorrt_llm LANGUAGES CXX)
 # Build options
 option(BUILD_PYT "Build in PyTorch TorchScript class mode" ON)
 option(BUILD_PYBIND "Build Python bindings for C++ runtime and batch manager"
-       ON)
-option(BUILD_TESTS "Build Google tests" ON)
-option(BUILD_BENCHMARKS "Build benchmarks" ON)
+  OFF)
+option(BUILD_TESTS "Build Google tests" OFF)
+option(BUILD_BENCHMARKS "Build benchmarks" OFF)
+option(BUILD_NITRO "Build nitro" ON)
 option(NVTX_DISABLE "Disable all NVTX features" ON)
 option(WARNING_IS_ERROR "Treat all warnings as errors" OFF)
 option(FAST_BUILD "Skip compiling some kernels to accelerate compiling" OFF)
@@ -129,9 +130,9 @@ endif()
 # Initialize CMAKE_CUDA_ARCHITECTURES before enabling CUDA
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL "11.8")
-    set(CMAKE_CUDA_ARCHITECTURES 70-real 80-real 86-real 89-real 90-real)
+    set(CMAKE_CUDA_ARCHITECTURES 89-real) 
   else()
-    set(CMAKE_CUDA_ARCHITECTURES 70-real 80-real 86-real)
+    set(CMAKE_CUDA_ARCHITECTURES 89-real)
   endif()
 endif()
 
@@ -177,8 +178,8 @@ include_directories(
   ${3RDPARTY_DIR}/json/include)
 
 # TRT dependencies
-set_ifndef(TRT_LIB_DIR ${CMAKE_BINARY_DIR})
-set_ifndef(TRT_INCLUDE_DIR /usr/include/${CMAKE_SYSTEM_PROCESSOR}-linux-gnu)
+set_ifndef(TRT_LIB_DIR /usr/local/tensorrt/lib)
+set_ifndef(TRT_INCLUDE_DIR /usr/local/tensorrt/include)
 set(TRT_LIB nvinfer)
 find_library_create_target(${TRT_LIB} nvinfer SHARED ${TRT_LIB_DIR})
 
