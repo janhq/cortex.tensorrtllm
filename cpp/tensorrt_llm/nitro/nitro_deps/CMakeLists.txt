@@ -79,6 +79,15 @@ ExternalProject_Add(
 	-DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
 )
 
+ExternalProject_Add(
+    sentencepiece
+    GIT_REPOSITORY https://github.com/google/sentencepiece
+    GIT_TAG v0.2.0
+    CMAKE_ARGS
+    	-DSPM_ENABLE_SHARED=OFF
+    	-DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
+)
+
 # Fix trantor cmakelists to link c-ares on Windows
 if(WIN32)
     set(TRANTOR_CMAKE_FILE ${CMAKE_CURRENT_SOURCE_DIR}/../build_deps/nitro_deps/drogon-prefix/src/drogon/trantor/CMakeLists.txt)
