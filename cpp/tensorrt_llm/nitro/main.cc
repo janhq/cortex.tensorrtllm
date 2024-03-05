@@ -1,3 +1,4 @@
+#include "sentencepiece_processor.h"
 #include "tensorrt_llm/common/cudaUtils.h"
 #include "tensorrt_llm/common/memoryUtils.h"
 #include "tensorrt_llm/plugins/api/tllmPlugin.h"
@@ -6,7 +7,6 @@
 #include "tensorrt_llm/runtime/iTensor.h"
 #include "tensorrt_llm/runtime/memoryCounters.h"
 #include "tensorrt_llm/runtime/tllmLogger.h"
-
 #include <NvInfer.h>
 #include <filesystem>
 #include <iostream>
@@ -18,15 +18,59 @@ using namespace tensorrt_llm::runtime;
 namespace tc = tensorrt_llm::common;
 namespace trt = nvinfer1;
 
+class Tokenizer
+{
+private:
+    sentencepiece::SentencePieceProcessor processor;
+
+    void replaceSubstring(std::string& base, const std::string& from, const std::string& to)
+    {
+        size_t start_pos = 0;
+        while ((start_pos = base.find(from, start_pos)) != std::string::npos)
+        {
+            base.replace(start_pos, from.length(), to);
+            start_pos += to.length();
+        }
+    }
+
+public:
+    Tokenizer(const std::string& modelPath)
+    {
+        auto status = processor.Load(modelPath);
+        if (!status.ok())
+        {
+            std::cerr << status.ToString() << std::endl;
+        }
+    }
+
+    std::string decodeWithSpace(const int id)
+    {
+        std::string text = processor.IdToPiece(id);
+        replaceSubstring(text, "▁", " ");
+        return text;
+    }
+
+    std::vector<int> encode(const std::string& input)
+    {
+        std::vector<int> ids;
+        processor.Encode(input, &ids);
+        return ids;
+    }
+};
+
 namespace
 {
 void runBenchmark()
 {
+    Tokenizer nitro_tokenizer("./tokenizer.model");
+    std::vector<int> text_input = nitro_tokenizer.encode("A long and sad story about the Abyss: ");
+
     // Fixed settings
     const std::string modelName = "mistral";
     const std::filesystem::path engineDir = "/app/mistral_engine_2/";
     const int batchSize = 1;
-    const std::vector<int> inOutLen = {10, 2938}; // input_length, output_length
+    const int inputLen = text_input.size();
+    const std::vector<int> inOutLen = {inputLen, 2938}; // input_length, output_length
 
     // Logger setup
     auto logger = std::make_shared<TllmLogger>();
@@ -44,22 +88,24 @@ void runBenchmark()
 
     GptSession::Config sessionConfig{1, 1, 1};
     sessionConfig.maxBatchSize = batchSize;
-    sessionConfig.maxBeamWidth = 1; // Fixed for simplicity
+    sessionConfig.maxBeamWidth = 4; // Fixed for simplicity
     sessionConfig.maxSequenceLength = inOutLen[0] + inOutLen[1];
     sessionConfig.cudaGraphMode = false; // Fixed for simplicity
 
     SamplingConfig samplingConfig{1}; // Fixed for simplicity
-    samplingConfig.temperature = std::vector{1.0f};
+    samplingConfig.temperature = std::vector{0.0f};
     samplingConfig.randomSeed = std::vector{static_cast<uint64_t>(42ull)};
-    samplingConfig.topK = std::vector{1};
+    samplingConfig.topK = std::vector{40};
     samplingConfig.topP = std::vector{0.0f};
     samplingConfig.minLength = std::vector{inOutLen[1]};
+    samplingConfig.repetitionPenalty = std::vector{1.3f};
 
     // Initialize session
     GptSession session{sessionConfig, modelConfig, worldConfig, enginePath.string(), logger};
     // Generate random input IDs within the model's vocabulary range
     const int vocabSize = modelConfig.getVocabSize();
-    std::vector<int32_t> inputIdsHost(batchSize * inOutLen[0]);
+    std::vector<int32_t> inputIdsHost = text_input;
+
     std::cout << "Start Nitro testing session: " << std::endl;
     //    for (auto& id : inputIdsHost)
     //    {
@@ -86,8 +132,8 @@ void runBenchmark()
         bufferManager.emptyTensor(MemoryType::kGPU, nvinfer1::DataType::kINT32)};
 
     // Define the callback to stream each generated token
-    generationOutput.onTokenGenerated
-        = [&bufferManager, inOutLen](GenerationOutput::TensorPtr const& outputIds, SizeType step, bool finished)
+    generationOutput.onTokenGenerated = [&bufferManager, inOutLen, &nitro_tokenizer](
+                                            GenerationOutput::TensorPtr const& outputIds, SizeType step, bool finished)
     {
         if (!finished)
         {
@@ -111,7 +157,8 @@ void runBenchmark()
             // Directly print the last non-zero value if found, without using 'step'
             if (lastNonZeroIndex != -1)
             {
-                std::cout << outputIdsHost[lastNonZeroIndex] << " ";
+                int outTok = outputIdsHost[lastNonZeroIndex];
+                std::cout << nitro_tokenizer.decodeWithSpace(outTok);
             }
         }
     };

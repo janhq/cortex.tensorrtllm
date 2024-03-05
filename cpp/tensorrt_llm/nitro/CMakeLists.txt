@@ -16,8 +16,20 @@
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/build_deps/_install)
 
-include_directories(${PROJECT_SOURCE_DIR}/include)
+message(STATUS "Current Source Directory NITRO: ${CMAKE_CURRENT_SOURCE_DIR}")
+
+# Enable pkg-config support in CMake
+find_package(PkgConfig REQUIRED)
+
+# Use pkg-config to find the SentencePiece library
+pkg_search_module(SENTENCEPIECE REQUIRED sentencepiece)
+
+
+include_directories(${PROJECT_SOURCE_DIR}/include ${SENTENCEPIECE_INCLUDE_DIRS})
+
+link_directories(${SENTENCEPIECE_LIBRARY_DIRS})
 
 set(TOP_LEVEL_DIR "${PROJECT_SOURCE_DIR}/..")
 
@@ -29,7 +41,7 @@ add_subdirectory(${CXXOPTS_SRC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cxxopts)
 add_executable(nitro main.cc)
 
 target_link_libraries(
-  nitro PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts)
+  nitro PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts ${SENTENCEPIECE_LIBRARIES})
 
 target_compile_features(nitro PRIVATE cxx_std_17)
 target_compile_definitions(nitro PUBLIC TOP_LEVEL_DIR="${TOP_LEVEL_DIR}")
