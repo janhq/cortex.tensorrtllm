@@ -26,7 +26,7 @@ void runBenchmark()
     const std::string modelName = "mistral";
     const std::filesystem::path engineDir = "/app/mistral_engine_2/";
     const int batchSize = 1;
-    const std::vector<int> inOutLen = {10, 2038}; // input_length, output_length
+    const std::vector<int> inOutLen = {10, 2938}; // input_length, output_length
 
     // Logger setup
     auto logger = std::make_shared<TllmLogger>();
