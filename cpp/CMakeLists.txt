@@ -17,6 +17,7 @@
 
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_BUILD_TYPE Release)
 
 include(CheckLanguage)
 include(cmake/modules/set_ifndef.cmake)
@@ -45,12 +46,7 @@ else()
   message(STATUS "NVTX is enabled")
 endif()
 
-if(EXISTS
-   "${CMAKE_CURRENT_SOURCE_DIR}/tensorrt_llm/batch_manager/CMakeLists.txt")
-  set(BUILD_BATCH_MANAGER_DEFAULT ON)
-else()
-  set(BUILD_BATCH_MANAGER_DEFAULT OFF)
-endif()
+set(BUILD_BATCH_MANAGER_DEFAULT OFF)
 
 option(BUILD_BATCH_MANAGER "Build batch manager from source"
        ${BUILD_BATCH_MANAGER_DEFAULT})
