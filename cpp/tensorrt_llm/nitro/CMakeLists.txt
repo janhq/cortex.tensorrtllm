@@ -19,6 +19,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/build_deps/_install)
 
 message(STATUS "Current Source Directory NITRO: ${CMAKE_CURRENT_SOURCE_DIR}")
+message(STATUS "Current Cmake Prefix Path of NITRO: ${CMAKE_PREFIX_PATH}")
 
 # Enable pkg-config support in CMake
 find_package(PkgConfig REQUIRED)
@@ -38,13 +39,26 @@ add_custom_target(nitro_proj)
 set(CXXOPTS_SRC_DIR ${PROJECT_SOURCE_DIR}/../3rdparty/cxxopts)
 add_subdirectory(${CXXOPTS_SRC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cxxopts)
 
+# main
 add_executable(nitro main.cc)
 
 target_link_libraries(
-  nitro PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts ${SENTENCEPIECE_LIBRARIES})
+  nitro PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece)
+
 
 target_compile_features(nitro PRIVATE cxx_std_17)
 target_compile_definitions(nitro PUBLIC TOP_LEVEL_DIR="${TOP_LEVEL_DIR}")
+
+# test
+add_executable(test test.cc)
+
+target_link_libraries(
+  test PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece)
+
+target_compile_features(test PRIVATE cxx_std_17)
+target_compile_definitions(test PUBLIC TOP_LEVEL_DIR="${TOP_LEVEL_DIR}")
+
+
 
 add_dependencies(nitro_proj nitro)
 

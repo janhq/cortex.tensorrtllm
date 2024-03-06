@@ -7,12 +7,12 @@
 #include "tensorrt_llm/runtime/iTensor.h"
 #include "tensorrt_llm/runtime/memoryCounters.h"
 #include "tensorrt_llm/runtime/tllmLogger.h"
+#include "thread"
 #include <NvInfer.h>
 #include <filesystem>
 #include <iostream>
 #include <ostream>
 #include <string>
-
 using namespace tensorrt_llm::runtime;
 
 namespace tc = tensorrt_llm::common;
@@ -107,14 +107,6 @@ void runBenchmark()
     std::vector<int32_t> inputIdsHost = text_input;
 
     std::cout << "Start Nitro testing session: " << std::endl;
-    //    for (auto& id : inputIdsHost)
-    //    {
-    //        id = rand() % vocabSize; // Random token ID within vocabulary range
-    //        std::cout << id << std::endl;
-    //    }
-    //    // Simplified benchmarking process for a single run
-    // Note: This example does not include input data preparation or output handling for brevity
-
     // Input preparation
     auto& bufferManager = session.getBufferManager();
     GenerationInput::TensorPtr inputIds
@@ -130,9 +122,8 @@ void runBenchmark()
 
     GenerationOutput generationOutput{bufferManager.emptyTensor(MemoryType::kGPU, nvinfer1::DataType::kINT32),
         bufferManager.emptyTensor(MemoryType::kGPU, nvinfer1::DataType::kINT32)};
-
     // Define the callback to stream each generated token
-    generationOutput.onTokenGenerated = [&bufferManager, inOutLen, &nitro_tokenizer](
+    generationOutput.onTokenGenerated = [&bufferManager, inOutLen, &nitro_tokenizer, &generationOutput](
                                             GenerationOutput::TensorPtr const& outputIds, SizeType step, bool finished)
     {
         if (!finished)
@@ -142,7 +133,6 @@ void runBenchmark()
             // Copy output IDs from GPU to host for printing
             std::vector<int32_t> outputIdsHost(outputLength);
             bufferManager.copy(*outputIds, outputIdsHost.data(), MemoryType::kCPU);
-
             // Find the last non-zero value in the output IDs starting from the end of the input sequence
             int lastNonZeroIndex = -1;
             for (int i = outputLength - 1; i >= inOutLen[0]; --i)
@@ -181,6 +171,7 @@ int main()
     try
     {
         runBenchmark();
+        std::this_thread::sleep_for(std::chrono::seconds(10));
     }
     catch (const std::exception& e)
     {
