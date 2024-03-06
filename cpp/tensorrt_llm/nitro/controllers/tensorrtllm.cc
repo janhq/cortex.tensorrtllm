@@ -5,9 +5,9 @@
 void tensorrtllm::chat_completion(
     const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) const
 {
-    std::vector<int> text_input = nitro_tokenizer.encode("How to survive in the Abyss chapter 1:\n\n ");
+    std::vector<int> text_input = nitro_tokenizer.encode(example_string);
     const int inputLen = text_input.size();
-    const std::vector<int> inOutLen = {inputLen, 500}; // input_length, output_length
+    const std::vector<int> inOutLen = {inputLen, 1500}; // input_length, output_length
 
     const int batchSize = 1;
 
@@ -57,11 +57,11 @@ void tensorrtllm::chat_completion(
                 int outTok = outputIdsHost[lastNonZeroIndex];
                 if (outTok == 13)
                 {
-                        std::cout<<"\n" <<std::flush;
+                    std::cout << "\n" << std::flush;
                 }
                 else
                 {
-                        std::cout<< this->nitro_tokenizer.decodeWithSpace(outTok)  <<std::flush;
+                    std::cout << this->nitro_tokenizer.decodeWithSpace(outTok) << std::flush;
                 }
             }
         }

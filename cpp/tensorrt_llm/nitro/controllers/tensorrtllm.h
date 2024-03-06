@@ -72,15 +72,15 @@ class tensorrtllm : public drogon::HttpController<tensorrtllm>
 public:
     tensorrtllm()
     {
-        std::vector<int> text_input = nitro_tokenizer.encode("How to survive in the Abyss chapter 1:\n\n ");
+        std::vector<int> text_input = nitro_tokenizer.encode(example_string);
         const int inputLen = text_input.size();
-        const std::vector<int> inOutLen = {inputLen, 500}; // input_length, output_length
+        const std::vector<int> inOutLen = {inputLen, 1500}; // input_length, output_length
 
         logger = std::make_shared<TllmLogger>();
         logger->setLevel(nvinfer1::ILogger::Severity::kINFO);
         // Fixed settings
         const std::string modelName = "mistral";
-        const std::filesystem::path engineDir = "/app/mistral_engine_2/";
+        const std::filesystem::path engineDir = "/app/mistral_engine_3/";
         const int batchSize = 1;
         initTrtLlmPlugins(logger.get());
         // Load model configuration
@@ -130,4 +130,5 @@ private:
     Tokenizer nitro_tokenizer{"./tokenizer.model"};
     std::unique_ptr<GptSession> gptSession;
     std::shared_ptr<TllmLogger> logger;
+    std::string example_string{"<|im_start|>system\nYou are a helpful assistant<|im_end|>\n<|im_start|>user\nPlease tell me a long and sad story<|im_end|>\n<|im_start|>assistant"};
 };
