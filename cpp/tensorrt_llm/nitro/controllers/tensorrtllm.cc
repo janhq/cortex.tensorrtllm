@@ -85,11 +85,8 @@ GenerationOutput tensorrtllm::createGenerationOutput()
     return generationOutput;
 }
 
-
-void inferenceThread(std::shared_ptr<inferenceState> inferState, 
-                     std::vector<int32_t> inputIdsHost, 
-                     std::function<void(const HttpResponsePtr&)> callback,
-                     tensorrtllm* self)
+void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int32_t> inputIdsHost,
+    std::function<void(const HttpResponsePtr&)> callback, tensorrtllm* self)
 {
     const int inputLen = inputIdsHost.size();
     const int outputLen = 2048 - inputLen;
@@ -111,8 +108,7 @@ void inferenceThread(std::shared_ptr<inferenceState> inferState,
 
     GenerationOutput generationOutput = self->createGenerationOutput();
 
-
-        // Define the callback to stream each generated token
+    // Define the callback to stream each generated token
     generationOutput.onTokenGenerated = [&inferState, inputLen, outputLen, self, &generationOutput](
                                             GenerationOutput::TensorPtr const& outputIds, SizeType step, bool finished)
     {
@@ -141,13 +137,15 @@ void inferenceThread(std::shared_ptr<inferenceState> inferState,
                 inferState->prevPos = text.size();
             }
             inferState->prevPos = text.size();
+            return;
         }
+        std::lock_guard<std::mutex> guard(inferState->queueMutex); // Protect access with a lock
+        inferState->textsToStream.push("[DONE]");
     };
     // The rest of the logic inside the `chat_completion` remains unchanged...
     // After finishing the setup, call the inference logic
     self->gptSession->generate(generationOutput, generationInput, samplingConfig);
 }
-
 
 void tensorrtllm::chat_completion(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback)
 {
@@ -173,14 +171,17 @@ void tensorrtllm::chat_completion(const HttpRequestPtr& req, std::function<void(
     std::thread infThread(inferenceThread, inferState, inputIdsHost, callback, this);
     infThread.detach(); // Detach the thread to allow it to run independently
 
-
     auto chunked_content_provider = [inferState](char* pBuffer, std::size_t nBuffSize) -> std::size_t
     {
-            std::cout << "EMPTY";
         if (!pBuffer)
         {
             LOG_INFO << "Connection closed or buffer is null. Reset context";
             return 0; // Indicate no more data to send
+        }
+
+        if (inferState->isFinished)
+        {
+            return 0;
         }
 
         while (true) // Continuously check if the queue is not empty
@@ -190,6 +191,18 @@ void tensorrtllm::chat_completion(const HttpRequestPtr& req, std::function<void(
             {
 
                 std::string rawText = inferState->textsToStream.front();
+                if (rawText == "[DONE]")
+                {
+                    LOG_INFO << "End of result";
+                    const std::string str
+                        = "data: " + create_return_json(nitro_utils::generate_random_string(20), "_", "", "stop")
+                        + "\n\n" + "data: [DONE]" + "\n\n";
+
+                    std::size_t nRead = std::min(str.size(), nBuffSize);
+                    memcpy(pBuffer, str.data(), nRead);
+                    inferState->isFinished = true;
+                    return nRead;
+                }
                 const std::string textToStream
                     = "data: " + create_return_json(nitro_utils::generate_random_string(20), "_", rawText) + "\n\n";
                 inferState->textsToStream.pop();
