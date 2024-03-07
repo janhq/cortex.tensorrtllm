@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sentencepiece_processor.h"
+#include <cstdint>
 #include <drogon/HttpController.h>
 
 #include "sentencepiece_processor.h"
@@ -31,7 +32,7 @@ class Tokenizer
 private:
     sentencepiece::SentencePieceProcessor processor;
 
-    void replaceSubstring(std::string& base, const std::string& from, const std::string& to) const
+    void replaceSubstring(std::string& base, const std::string& from, const std::string& to)
     {
         size_t start_pos = 0;
         while ((start_pos = base.find(from, start_pos)) != std::string::npos)
@@ -52,14 +53,20 @@ public:
         LOG_INFO << "Successully loaded the tokenizer";
     }
 
-    std::string decodeWithSpace(const int id) const
+    std::string decodeWithSpace(const int id)
     {
         std::string text = processor.IdToPiece(id);
         replaceSubstring(text, "▁", " ");
         return text;
     }
 
-    std::vector<int> encode(const std::string& input) const
+    std::string decode(const std::vector<int32_t> ids)
+    {
+        std::string text = processor.DecodeIds(ids);
+        return text;
+    }
+
+    std::vector<int> encode(const std::string& input)
     {
         std::vector<int> ids;
         processor.Encode(input, &ids);
@@ -74,7 +81,7 @@ public:
     {
         std::vector<int> text_input = nitro_tokenizer.encode(example_string);
         const int inputLen = text_input.size();
-        const std::vector<int> inOutLen = {inputLen, 1500}; // input_length, output_length
+        const std::vector<int> inOutLen = {inputLen, 2000}; // input_length, output_length
 
         logger = std::make_shared<TllmLogger>();
         logger->setLevel(nvinfer1::ILogger::Severity::kINFO);
@@ -94,7 +101,7 @@ public:
 
         // Set gptsessionconfig
         sessionConfig.maxBatchSize = batchSize;
-        sessionConfig.maxBeamWidth = 4; // Fixed for simplicity
+        sessionConfig.maxBeamWidth = 1; // Fixed for simplicity
         sessionConfig.maxSequenceLength = inOutLen[0] + inOutLen[1];
         sessionConfig.cudaGraphMode = false; // Fixed for simplicity
 
@@ -105,7 +112,6 @@ public:
         samplingConfig.topP = std::vector{0.0f};
         samplingConfig.minLength = std::vector{inOutLen[1]};
         samplingConfig.repetitionPenalty = std::vector{1.3f};
-
         gptSession
             = std::make_unique<GptSession>(sessionConfig, *modelConfig, worldConfig, enginePath.string(), logger);
     };
@@ -121,14 +127,15 @@ public:
     // your declaration of processing function maybe like this:
     // void get(const HttpRequestPtr& req, std::function<void (const HttpResponsePtr &)> &&callback, int p1, std::string
     // p2);
-    void chat_completion(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) const;
+    void chat_completion(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
 
 private:
     GptSession::Config sessionConfig{1, 1, 1};
     SamplingConfig samplingConfig{1};
     std::unique_ptr<GptModelConfig> modelConfig;
-    Tokenizer nitro_tokenizer{"./tokenizer.model"};
+    Tokenizer nitro_tokenizer{"./new_chatml_tokenizer.model"};
     std::unique_ptr<GptSession> gptSession;
     std::shared_ptr<TllmLogger> logger;
-    std::string example_string{"<|im_start|>system\nYou are a helpful assistant<|im_end|>\n<|im_start|>user\nPlease tell me a long and sad story<|im_end|>\n<|im_start|>assistant"};
+    std::string example_string{
+        "<|im_start|>system\nYou are a helpful assistant<|im_end|>\n<|im_start|>user\nHello there<|im_end|>\n<|im_start|>assistant"};
 };
