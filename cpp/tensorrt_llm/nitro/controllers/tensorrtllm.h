@@ -6,6 +6,8 @@
 
 #include "sentencepiece_processor.h"
 #include "tensorrt_llm/plugins/api/tllmPlugin.h"
+#include "tensorrt_llm/runtime/generationInput.h"
+#include "tensorrt_llm/runtime/generationOutput.h"
 #include "tensorrt_llm/runtime/gptJsonConfig.h"
 #include "tensorrt_llm/runtime/gptModelConfig.h"
 #include "tensorrt_llm/runtime/gptSession.h"
@@ -83,7 +85,6 @@ public:
         // Fixed settings
         const std::string modelName = "mistral";
         const std::filesystem::path engineDir = "/app/mistral_engine_3/";
-        const int batchSize = 1;
         initTrtLlmPlugins(logger.get());
         // Load model configuration
         std::filesystem::path jsonFileName = engineDir / "config.json";
@@ -94,19 +95,13 @@ public:
         auto const enginePath = engineDir / json.engineFilename(worldConfig, modelName);
         auto const dtype = modelConfig->getDataType();
 
-        // Set gptsessionconfig
+        // Currently doing fixed session config
         sessionConfig.maxBatchSize = batchSize;
         sessionConfig.maxBeamWidth = 1; // Fixed for simplicity
-        sessionConfig.maxSequenceLength = inOutLen[0] + inOutLen[1];
-        sessionConfig.cudaGraphMode = false; // Fixed for simplicity
+        sessionConfig.maxSequenceLength = 2048;
+        sessionConfig.cudaGraphMode = true; // Fixed for simplicity
 
-        // Set smapling config
-        samplingConfig.temperature = std::vector{0.0f};
-        samplingConfig.randomSeed = std::vector{static_cast<uint64_t>(42ull)};
-        samplingConfig.topK = std::vector{40};
-        samplingConfig.topP = std::vector{0.0f};
-        samplingConfig.minLength = std::vector{inOutLen[1]};
-        samplingConfig.repetitionPenalty = std::vector{1.3f};
+        // Init gptSession
         gptSession
             = std::make_unique<GptSession>(sessionConfig, *modelConfig, worldConfig, enginePath.string(), logger);
     };
@@ -124,13 +119,19 @@ public:
     // p2);
     void chat_completion(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
 
+    std::unique_ptr<GptSession> gptSession;
+    GenerationInput::TensorPtr getTensorSingleStopWordList(int stopToken);
+    GenerationInput createGenerationInput(std::vector<int32_t> inputIds);
+    GenerationOutput createGenerationOutput();
+    Tokenizer nitro_tokenizer{"./new_chatml_tokenizer.model"};
+
 private:
     GptSession::Config sessionConfig{1, 1, 1};
     SamplingConfig samplingConfig{1};
     std::unique_ptr<GptModelConfig> modelConfig;
-    Tokenizer nitro_tokenizer{"./new_chatml_tokenizer.model"};
-    std::unique_ptr<GptSession> gptSession;
     std::shared_ptr<TllmLogger> logger;
     std::string example_string{
-        "<|im_start|>system\nYou are a helpful assistant<|im_end|>\n<|im_start|>user\nHello there<|im_end|>\n<|im_start|>assistant"};
+        "<|im_start|>system\nYou are a helpful assistant<|im_end|>\n<|im_start|>user\nPlease write a long and sad "
+        "story<|im_end|>\n<|im_start|>assistant"};
+    int batchSize = 1;
 };
