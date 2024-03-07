@@ -5,17 +5,12 @@
 #include <drogon/HttpController.h>
 
 #include "sentencepiece_processor.h"
-#include "tensorrt_llm/common/cudaUtils.h"
-#include "tensorrt_llm/common/memoryUtils.h"
 #include "tensorrt_llm/plugins/api/tllmPlugin.h"
 #include "tensorrt_llm/runtime/gptJsonConfig.h"
 #include "tensorrt_llm/runtime/gptModelConfig.h"
 #include "tensorrt_llm/runtime/gptSession.h"
-#include "tensorrt_llm/runtime/iTensor.h"
-#include "tensorrt_llm/runtime/memoryCounters.h"
 #include "tensorrt_llm/runtime/samplingConfig.h"
 #include "tensorrt_llm/runtime/tllmLogger.h"
-#include "thread"
 #include <NvInfer.h>
 #include <filesystem>
 #include <iostream>
