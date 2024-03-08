@@ -83,18 +83,5 @@ target_include_directories(nitro PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_sources(nitro PRIVATE ${CTL_SRC} ${COMMON_SRC} ${CONTEXT_SRC})
 
 
-
-
-# test
-add_executable(test test.cc)
-
-target_link_libraries(
-  test PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece )
-
-target_compile_features(test PRIVATE cxx_std_17)
-target_compile_definitions(test PUBLIC TOP_LEVEL_DIR="${TOP_LEVEL_DIR}")
-#
-
-
 add_dependencies(nitro_proj nitro)
 
