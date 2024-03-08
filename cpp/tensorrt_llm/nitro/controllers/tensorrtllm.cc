@@ -16,6 +16,7 @@
 #include <vector>
 
 using json = nlohmann::json;
+using namespace inferences;
 
 void removeId(std::vector<int>& vec, int id)
 {
@@ -127,7 +128,7 @@ void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int
             std::vector<int> outputIdsHostDecode(outputIdsHost.begin() + inputLen, outputIdsHost.end());
             removeId(outputIdsHostDecode, 0);
             removeId(outputIdsHostDecode, 32000);
-            std::string text = self->nitro_tokenizer.decode(outputIdsHostDecode);
+            std::string text = self->nitro_tokenizer->decode(outputIdsHostDecode);
 
             if (inferState->prevPos > 0 && inferState->prevPos < text.size())
             {
@@ -202,7 +203,7 @@ void tensorrtllm::chat_completion(
 
     std::shared_ptr<inferenceState> inferState = std::make_shared<inferenceState>();
 
-    std::vector<int32_t> inputIdsHost = nitro_tokenizer.encode(formatted_input);
+    std::vector<int32_t> inputIdsHost = nitro_tokenizer->encode(formatted_input);
     const int inputLen = inputIdsHost.size();
     const int outputLen = 2048 - inputLen;
 
@@ -276,6 +277,58 @@ void tensorrtllm::chat_completion(
 
     auto streamResponse = nitro_utils::nitroStreamResponse(chunked_content_provider);
     callback(streamResponse);
+    return;
+};
+
+void tensorrtllm::loadModel(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback)
+{
+    const auto& jsonBody = req->getJsonObject();
+
+    if (!jsonBody)
+    {
+        Json::Value jsonResp;
+        jsonResp["message"] = "Require params!";
+        auto resp = nitro_utils::nitroHttpJsonResponse(jsonResp);
+        callback(resp);
+        return;
+    }
+
+    const std::filesystem::path engineDir = jsonBody->operator[]("engine_path").asString();
+    int ctx_len = jsonBody->get("ctx_len", 2048).asInt();
+
+    logger = std::make_shared<TllmLogger>();
+    logger->setLevel(nvinfer1::ILogger::Severity::kINFO);
+    // Fixed settings
+    const std::string modelName = "mistral";
+    initTrtLlmPlugins(logger.get());
+    // Load model configuration
+    std::filesystem::path jsonFileName = engineDir / "config.json";
+    std::filesystem::path tokenizerModelName = engineDir / "tokenizer.model";
+
+    nitro_tokenizer = std::make_unique<Tokenizer>(tokenizerModelName.string());
+    LOG_INFO << "Loaded tokenizer";
+
+    auto const json = GptJsonConfig::parse(jsonFileName);
+    auto config = json.getModelConfig();
+    modelConfig = std::make_unique<GptModelConfig>(config);
+    auto const worldConfig = WorldConfig::mpi(1, json.getTensorParallelism(), json.getPipelineParallelism());
+    auto const enginePath = engineDir / json.engineFilename(worldConfig, modelName);
+    LOG_INFO << "Engine Path : " << enginePath.string();
+    auto const dtype = modelConfig->getDataType();
+
+    // Currently doing fixed session config
+    sessionConfig.maxBatchSize = batchSize;
+    sessionConfig.maxBeamWidth = 1; // Fixed for simplicity
+    sessionConfig.maxSequenceLength = ctx_len;
+    sessionConfig.cudaGraphMode = true; // Fixed for simplicity
+
+    // Init gptSession
+    gptSession = std::make_unique<GptSession>(sessionConfig, *modelConfig, worldConfig, enginePath.string(), logger);
+    // Model loaded successfully
+    Json::Value jsonResp;
+    jsonResp["message"] = "Model loaded successfully";
+    auto resp = nitro_utils::nitroHttpJsonResponse(jsonResp);
+    callback(resp);
     return;
 };
 
