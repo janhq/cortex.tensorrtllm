@@ -1,4 +1,6 @@
 #include "tensorrtllm.h"
+#include "models/chat_completion_request.h"
+#include "nlohmann/json.hpp"
 #include "tensorrt_llm/runtime/generationInput.h"
 #include "tensorrt_llm/runtime/generationOutput.h"
 #include "tensorrt_llm/runtime/samplingConfig.h"
@@ -12,6 +14,8 @@
 #include <string>
 #include <trantor/utils/Logger.h>
 #include <vector>
+
+using json = nlohmann::json;
 
 void removeId(std::vector<int>& vec, int id)
 {
@@ -147,11 +151,58 @@ void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int
     self->gptSession->generate(generationOutput, generationInput, samplingConfig);
 }
 
-void tensorrtllm::chat_completion(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback)
+void tensorrtllm::chat_completion(
+    inferences::ChatCompletionRequest&& completion, std::function<void(const HttpResponsePtr&)>&& callback)
 {
+
+    std::string formatted_input = pre_prompt;
+
+    nlohmann::json data;
+
+    data["stream"] = completion.stream;
+    data["n_predict"] = completion.max_tokens;
+    data["top_p"] = completion.top_p;
+    data["temperature"] = completion.temperature;
+    data["frequency_penalty"] = completion.frequency_penalty;
+    data["presence_penalty"] = completion.presence_penalty;
+    const Json::Value& messages = completion.messages;
+
+    // Format the input from user
+    for (const auto& message : messages)
+    {
+        std::string input_role = message["role"].asString();
+        std::string role;
+        if (input_role == "user")
+        {
+            role = user_prompt;
+            std::string content = message["content"].asString();
+            formatted_input += role + content;
+        }
+        else if (input_role == "assistant")
+        {
+            role = ai_prompt;
+            std::string content = message["content"].asString();
+            formatted_input += role + content;
+        }
+        else if (input_role == "system")
+        {
+            role = system_prompt;
+            std::string content = message["content"].asString();
+            formatted_input = role + content + formatted_input;
+        }
+        else
+        {
+            role = input_role;
+            std::string content = message["content"].asString();
+            formatted_input += role + content;
+        }
+    }
+    formatted_input += ai_prompt;
+    // Format the input from user
+
     std::shared_ptr<inferenceState> inferState = std::make_shared<inferenceState>();
 
-    std::vector<int32_t> inputIdsHost = nitro_tokenizer.encode(example_string);
+    std::vector<int32_t> inputIdsHost = nitro_tokenizer.encode(formatted_input);
     const int inputLen = inputIdsHost.size();
     const int outputLen = 2048 - inputLen;
 

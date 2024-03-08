@@ -1,5 +1,6 @@
 #pragma once
 
+#include "drogon/HttpTypes.h"
 #include "sentencepiece_processor.h"
 #include <cstdint>
 #include <drogon/HttpController.h>
@@ -19,6 +20,8 @@
 #include <memory>
 #include <ostream>
 #include <string>
+
+#include "models/chat_completion_request.h"
 
 using namespace drogon;
 
@@ -76,10 +79,6 @@ class tensorrtllm : public drogon::HttpController<tensorrtllm>
 public:
     tensorrtllm()
     {
-        std::vector<int> text_input = nitro_tokenizer.encode(example_string);
-        const int inputLen = text_input.size();
-        const std::vector<int> inOutLen = {inputLen, 2000}; // input_length, output_length
-
         logger = std::make_shared<TllmLogger>();
         logger->setLevel(nvinfer1::ILogger::Severity::kINFO);
         // Fixed settings
@@ -110,14 +109,15 @@ public:
     // use METHOD_ADD to add your custom processing function here;
     // METHOD_ADD(tensorrtllm::get, "/{2}/{1}", Get); // path is /tensorrtllm/{arg2}/{arg1}
     // METHOD_ADD(tensorrtllm::your_method_name, "/{1}/{2}/list", Get); // path is /tensorrtllm/{arg1}/{arg2}/list
-    ADD_METHOD_TO(tensorrtllm::chat_completion, "/testing", Get); // path is
+    ADD_METHOD_TO(tensorrtllm::chat_completion, "/v1/chat/completions", Post); // path is
     // /absolute/path/{arg1}/{arg2}/list
 
     METHOD_LIST_END
     // your declaration of processing function maybe like this:
     // void get(const HttpRequestPtr& req, std::function<void (const HttpResponsePtr &)> &&callback, int p1, std::string
     // p2);
-    void chat_completion(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
+    void chat_completion(
+        inferences::ChatCompletionRequest&& completion, std::function<void(const HttpResponsePtr&)>&& callback);
 
     std::unique_ptr<GptSession> gptSession;
     GenerationInput::TensorPtr getTensorSingleStopWordList(int stopToken);
@@ -133,5 +133,9 @@ private:
     std::string example_string{
         "<|im_start|>system\nYou are a helpful assistant<|im_end|>\n<|im_start|>user\nPlease write a long and sad "
         "story<|im_end|>\n<|im_start|>assistant"};
+    std::string user_prompt{"<|im_end|>\n<|im_start|>user\n"};
+    std::string ai_prompt{"<|im_end|>\n<|im_start|>assistant\n"};
+    std::string system_prompt{"<|im_start|>system\n"};
+    std::string pre_prompt;
     int batchSize = 1;
 };
