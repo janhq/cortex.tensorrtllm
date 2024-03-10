@@ -284,4 +284,6 @@ RUN powershell -Command \
 
 ADD runner.ps1 ./runner.ps1
 
+RUN New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+
 CMD ["powershell.exe", "-ExecutionPolicy", "Unrestricted", "-File", ".\\runner.ps1"]
