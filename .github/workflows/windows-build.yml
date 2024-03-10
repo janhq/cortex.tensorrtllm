@@ -42,12 +42,13 @@ jobs:
         run: |
           robocopy 'C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro\build_deps' '.\cpp\tensorrt_llm\nitro\' /E
 
-      - name: install nitro deps
-        shell: powershell
-        run: |
-          cd cpp\tensorrt_llm\nitro
-          powershell -Command cmake -S ./nitro_deps -B ./build_deps/nitro_deps
-          powershell -Command cmake --build ./build_deps/nitro_deps --config Release
+      - uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 45
+          max_attempts: 3
+          shell: powershell
+          command: |
+            cd cpp\tensorrt_llm\nitro; powershell -Command cmake -S ./nitro_deps -B ./build_deps/nitro_deps; powershell -Command cmake --build ./build_deps/nitro_deps --config Release
 
       - name: Build Python
         shell: powershell
