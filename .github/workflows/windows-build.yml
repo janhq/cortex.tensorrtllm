@@ -21,9 +21,7 @@ jobs:
         shell: powershell
         run: |
           Remove-Item -Path '.\build' -Recurse -ErrorAction SilentlyContinue
-          Remove-Item -Path '.\build_nitro' -Recurse -ErrorAction SilentlyContinue
           Remove-Item -Path '.\cpp\build' -Recurse -ErrorAction SilentlyContinue
-          Remove-Item -Path '.\cpp\tensorrt_llm\nitro\build_deps' -Recurse -ErrorAction SilentlyContinue
       
       - name: Copy build cache `build`
         shell: powershell
@@ -37,12 +35,13 @@ jobs:
         run: |
           robocopy 'C:\workspace\nitro-tensorrt-llm\cpp\build' '.\cpp' /E
 
-      - name: Copy build cache `nitro build_deps`
+      - name: install nitro deps
         shell: powershell
-        continue-on-error: true
         run: |
-          robocopy 'C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro\build_deps' '.\cpp\tensorrt_llm\nitro\' /E
-      
+          cd cpp\tensorrt_llm\nitro
+          cmake -S ./nitro_deps -B ./build_deps/nitro_deps
+          cmake --build ./build_deps/nitro_deps --config Release
+
       - name: Build Python
         shell: powershell
         run: |
@@ -59,7 +58,7 @@ jobs:
         run: |
           cd cpp\build
           cmake .. -DCMAKE_CUDA_ARCHITECTURES="80-real;86-real" -DTRT_LIB_DIR="C:/workspace/TensorRT-9.2.0.5/lib" -DTRT_INCLUDE_DIR="C:/workspace/TensorRT-9.2.0.5/include" -DBUILD_NITRO=ON -DCMAKE_CUDA_COMPILER="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin/nvcc.exe" -DENABLE_MULTI_DEVICE=0 -G Ninja
-          cmake --build . --parallel 2 --config Release'
+          cmake --build . --parallel 2 --config Release
       
       - name: create nitro artifact with dll file
         shell: powershell
