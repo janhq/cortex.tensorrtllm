@@ -21,7 +21,9 @@ jobs:
         shell: powershell
         run: |
           Remove-Item -Path '.\build' -Recurse -ErrorAction SilentlyContinue
+          Remove-Item -Path '.\build_nitro' -Recurse -ErrorAction SilentlyContinue
           Remove-Item -Path '.\cpp\build' -Recurse -ErrorAction SilentlyContinue
+          Remove-Item -Path '.\cpp\tensorrt_llm\nitro\build_deps' -Recurse -ErrorAction SilentlyContinue
       
       - name: Copy build cache `build`
         shell: powershell
@@ -34,6 +36,13 @@ jobs:
         continue-on-error: true
         run: |
           robocopy 'C:\workspace\nitro-tensorrt-llm\cpp\build' '.\cpp' /E
+
+      - name: Copy build cache `nitro build_deps`
+        shell: powershell
+        continue-on-error: true
+        run: |
+          robocopy 'C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro\build_deps' '.\cpp\tensorrt_llm\nitro\' /E
+  
 
       - name: install nitro deps
         shell: powershell
