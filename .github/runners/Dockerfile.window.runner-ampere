@@ -235,6 +235,37 @@ RUN choco install 7zip -y; \
     7z --help
 
 # Requirements to build tensorrt-llm on windows
+# COPY ./requirements-windows.txt ./tensorrt-llm-nitro/requirements-windows.txt
+# COPY ./requirements-dev-windows.txt ./tensorrt-llm-nitro/requirements-dev-windows.txt
+# RUN powershell -Command \
+#     cd tensorrt-llm-nitro; \
+#     pip install --no-cache-dir -r .\requirements-dev-windows.txt
+
+# COPY ./.git ./tensorrt-llm-nitro/.git
+
+# COPY ./3rdparty ./tensorrt-llm-nitro/3rdparty
+
+# COPY ./cpp ./tensorrt-llm-nitro/cpp
+
+RUN powershell -Command \
+    $ErrorActionPreference = 'Stop'; \
+    git clone https://github.com/janhq/nitro-tensorrt-llm.git; \
+    cd nitro-tensorrt-llm; \
+    git checkout tensorrt-llm-nitro-rel; \
+    git submodule update --init --recursive; \
+    pip install --no-cache-dir -r .\requirements-dev-windows.txt; \
+    cd cpp/tensorrt_llm/nitro; \
+    cmake -S ./nitro_deps -B ./build_deps/nitro_deps; \
+    cmake --build ./build_deps/nitro_deps --config Release
+
+RUN setx Path "%Path%;C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools"
+
+RUN VsDevCmd.bat -arch=amd64 && \
+    powershell.exe -NoLogo -ExecutionPolicy Bypass "cd nitro-tensorrt-llm; python .\scripts\build_wheel.py -a '80-real;86-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'"
+
+# # -----------------------------------------------------------------------------
+
+# Requirements to build tensorrt-llm on windows
 ARG RUNNER_VERSION=2.314.1
 
 # Define the entry point for the docker container.

@@ -14,7 +14,7 @@ SHELL ["cmd", "/S", "/C"]
 
 RUN powershell -Command \
     $ErrorActionPreference = 'Stop'; \
-    curl.exe https://delta.jan.ai/windows-container-dependencies/cuda_12.2.2_537.13_windows.exe \
+    curl.exe https://delta.jan.ai/dist/windows-container-dependencies/1/cuda_12.2.2_537.13_windows.exe \
     --output "cuda_installer.exe"; \
     Start-Process cuda_installer.exe -Wait -ArgumentList '-s'; \
     Remove-Item cuda_installer.exe -Force
@@ -26,7 +26,7 @@ RUN powershell -Command \
 # Download and install Python
 RUN powershell -Command \
     $ErrorActionPreference = 'Stop'; \
-    curl.exe https://delta.jan.ai/windows-container-dependencies/python-3.10.11-amd64.exe --output python-3.10.11.exe ; \
+    curl.exe https://delta.jan.ai/dist/windows-container-dependencies/1/python-3.10.11-amd64.exe --output python-3.10.11.exe ; \
     Start-Process python-3.10.11.exe -Wait -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1' ; \
     Remove-Item python-3.10.11.exe -Force
 
@@ -44,7 +44,7 @@ RUN powershell -Command \
 # We use 10.1.1 which has a release on the GitHub page
 RUN powershell -Command \
     $ErrorActionPreference = 'Stop'; \
-    curl.exe https://delta.jan.ai/windows-container-dependencies/msmpisetup.exe \
+    curl.exe https://delta.jan.ai/dist/windows-container-dependencies/1/msmpisetup.exe \
     --output "msmpisetup.exe"; \
     Start-Process .\msmpisetup.exe -Wait ; \
     Remove-Item msmpisetup.exe -Force
@@ -55,7 +55,7 @@ RUN setx Path "%Path%;C:\Program Files\Microsoft MPI\Bin"
 # Download the MSMPI SDK
 RUN powershell -Command \
     $ErrorActionPreference = 'Stop'; \
-    curl.exe https://delta.jan.ai/windows-container-dependencies/msmpisdk.msi \
+    curl.exe https://delta.jan.ai/dist/windows-container-dependencies/1/msmpisdk.msi \
     --output "msmpisdk.msi"; \
     Start-Process msiexec.exe -Wait -ArgumentList '/I msmpisdk.msi /quiet'; \
     Remove-Item msmpisdk.msi -Force
@@ -66,7 +66,7 @@ RUN powershell -Command \
 
 RUN powershell -Command \
     $ErrorActionPreference = 'Stop'; \
-    curl.exe https://delta.jan.ai/windows-container-dependencies/cmake-3.27.7-windows-x86_64.msi \
+    curl.exe https://delta.jan.ai/dist/windows-container-dependencies/1/cmake-3.27.7-windows-x86_64.msi \
     --output "cmake.msi"; \
     Start-Process msiexec.exe -Wait -ArgumentList '/I cmake.msi /quiet'; \
     Remove-Item cmake.msi -Force
@@ -80,7 +80,7 @@ RUN setx Path "%Path%;C:\Program Files\CMake\bin"
 
 RUN \
     # Download the Build Tools bootstrapper.
-    curl.exe -SL --output vs_buildtools.exe https://delta.jan.ai/windows-container-dependencies/vs_buildtools.exe \
+    curl -SL --output vs_buildtools.exe https://aka.ms/vs/17/release/vs_buildtools.exe \
     \
     # Install Build Tools with the Microsoft.VisualStudio.Workload.AzureBuildTools workload, excluding workloads and components with known issues.
     && (start /w vs_buildtools.exe --quiet --wait --norestart --nocache \
@@ -103,7 +103,7 @@ RUN \
 
 RUN powershell -Command \
     $ErrorActionPreference = 'Stop'; \
-    curl.exe https://delta.jan.ai/windows-container-dependencies/gvim90.exe \
+    curl.exe https://delta.jan.ai/dist/windows-container-dependencies/1/gvim90.exe \
     --output "install_vim.exe"; \
     Start-Process install_vim.exe -Wait -ArgumentList '/S'; \
     Remove-Item install_vim.exe -Force
@@ -152,7 +152,14 @@ RUN powershell -Command \
 # Instead, we just copy the older NvToolsExt version to where CMake expects.
 # This assumes NvToolsExt was installed on the host machine using the
 # CUDA 11.8 GUI installer and copied to the build context
-COPY ["NvToolsExt", "C:\\\\Program Files\\\\NVIDIA Corporation\\\\NvToolsExt"]
+
+# COPY ["NvToolsExt", "C:\\\\Program Files\\\\NVIDIA Corporation\\\\NvToolsExt"]
+RUN powershell -Command \
+    $ErrorActionPreference = 'Stop'; \
+    curl.exe https://delta.jan.ai/dist/windows-container-dependencies/1/NvToolsExt.zip \
+    --output NvToolsExt.zip; \
+    Expand-Archive .\NvToolsExt.zip -DestinationPath 'C:\Program Files\NVIDIA Corporation\'; \
+    Remove-Item NvToolsExt.zip -Force
 
 # -----------------------------------------------------------------------------
 
@@ -164,7 +171,7 @@ WORKDIR "C:\\\\workspace"
 # Download and unzip TensorrRT 9.2.0.5 for TensorRT-LLM
 RUN powershell -Command \
     $ErrorActionPreference = 'Stop'; \
-    curl.exe https://delta.jan.ai/windows-container-dependencies/tensorrt-9.2.0.5.windows10.x86_64.cuda-12.2.llm.beta.zip \
+    curl.exe https://delta.jan.ai/dist/windows-container-dependencies/1/TensorRT-9.2.0.5.Windows10.x86_64.cuda-12.2.llm.beta.zip \
     --output TensorRT-9.2.0.5.zip; \
     Expand-Archive .\TensorRT-9.2.0.5.zip -DestinationPath .; \
     Remove-Item TensorRT-9.2.0.5.zip -Force
@@ -181,7 +188,13 @@ RUN powershell -Command \
 
 # Copy cuDNN into the working directory
 # This assumes cuDNN exists on the host machine in the build context
-COPY ["cuDNN", "cuDNN"]
+# COPY ["cuDNN", "cuDNN"]
+RUN powershell -Command \
+    $ErrorActionPreference = 'Stop'; \
+    curl.exe https://delta.jan.ai/dist/windows-container-dependencies/1/cuDNN.zip \
+    --output cuDNN.zip; \
+    Expand-Archive .\cuDNN.zip -DestinationPath .; \
+    Remove-Item cuDNN.zip -Force
 
 # Add cuDNN libs and bin to Path.
 RUN setx Path "%Path%;C:\workspace\cuDNN\lib;C:\workspace\cuDNN\bin;"
@@ -213,21 +226,62 @@ RUN powershell -Command \
 
 # Package for nitro compile
 RUN powershell -Command \
-    choco install pkgconfiglite -y
+    choco install pkgconfiglite --allow-empty-checksums -y
 
 RUN powershell -Command \
     choco install Ninja -y
 
-# Requirements to build tensorrt-llm on windows
-COPY ./requirements-windows.txt ./tensorrt-llm-nitro/requirements-windows.txt
-COPY ./requirements-dev-windows.txt ./tensorrt-llm-nitro/requirements-dev-windows.txt
-RUN powershell -Command \
-    cd tensorrt-llm-nitro; \
-    pip install --no-cache-dir -r .\requirements-dev-windows.txt
+RUN choco install 7zip -y; \
+    7z --help
 
-COPY . ./tensorrt-llm-nitro/
+# Requirements to build tensorrt-llm on windows
+# COPY ./requirements-windows.txt ./tensorrt-llm-nitro/requirements-windows.txt
+# COPY ./requirements-dev-windows.txt ./tensorrt-llm-nitro/requirements-dev-windows.txt
+# RUN powershell -Command \
+#     cd tensorrt-llm-nitro; \
+#     pip install --no-cache-dir -r .\requirements-dev-windows.txt
+
+# COPY ./.git ./tensorrt-llm-nitro/.git
+
+# COPY ./3rdparty ./tensorrt-llm-nitro/3rdparty
+
+# COPY ./cpp ./tensorrt-llm-nitro/cpp
+
+RUN powershell -Command \
+    $ErrorActionPreference = 'Stop'; \
+    git clone https://github.com/janhq/nitro-tensorrt-llm.git; \
+    cd nitro-tensorrt-llm; \
+    git checkout tensorrt-llm-nitro-rel; \
+    git submodule update --init --recursive; \
+    pip install --no-cache-dir -r .\requirements-dev-windows.txt; \
+    cd cpp/tensorrt_llm/nitro; \
+    cmake -S ./nitro_deps -B ./build_deps/nitro_deps; \
+    cmake --build ./build_deps/nitro_deps --config Release
+
+RUN setx Path "%Path%;C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools"
+
+RUN VsDevCmd.bat -arch=amd64 && \
+    powershell.exe -NoLogo -ExecutionPolicy Bypass "cd nitro-tensorrt-llm; python .\scripts\build_wheel.py -a '89-real;90-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'"
+
+# # -----------------------------------------------------------------------------
+
+# Requirements to build tensorrt-llm on windows
+ARG RUNNER_VERSION=2.314.1
 
 # Define the entry point for the docker container.
 # This entry point launches the 64-bit PowerShell developer shell.
 # We need to launch with amd64 arch otherwise Powershell defaults to x86 32-bit build commands which don't jive with CUDA
 # ENTRYPOINT ["C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\Tools\\VsDevCmd.bat", "-arch=amd64", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
+
+RUN powershell -Command \
+    $ErrorActionPreference = 'Stop'; \
+    Invoke-WebRequest \
+      -Uri https://github.com/actions/runner/releases/download/v$env:RUNNER_VERSION/actions-runner-win-x64-$env:RUNNER_VERSION.zip \
+      -OutFile runner.zip; \
+    Expand-Archive -Path ./runner.zip -DestinationPath ./actions-runner; \
+    Remove-Item -Path .\runner.zip; \
+    setx /M PATH $(${Env:PATH} + \";${Env:ProgramFiles}\Git\bin\")
+
+ADD runner.ps1 ./runner.ps1
+
+CMD ["powershell.exe", "-ExecutionPolicy", "Unrestricted", "-File", ".\\runner.ps1"]
