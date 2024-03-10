@@ -15,6 +15,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: recursive
+          lfs: true
 
       - name: remove existing build folder
         shell: powershell
@@ -45,7 +46,7 @@ jobs:
       - name: Build Python
         shell: powershell
         run: |
-          VsDevCmd.bat -arch=amd64 && powershell.exe -NoLogo -ExecutionPolicy Bypass "cd nitro-tensorrt-llm; python .\scripts\build_wheel.py -a '80-real;86-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'"
+          python .\scripts\build_wheel.py -a '80-real;86-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v2
@@ -56,8 +57,8 @@ jobs:
       - name: Build nitro
         shell: powershell
         run: |
-          VsDevCmd.bat -arch=amd64 && powershell.exe -NoLogo -ExecutionPolicy Bypass 'cd cpp\build;
-          cmake .. -DCMAKE_CUDA_ARCHITECTURES="80-real;86-real" -DTRT_LIB_DIR="C:/workspace/TensorRT-9.2.0.5/lib" -DTRT_INCLUDE_DIR="C:/workspace/TensorRT-9.2.0.5/include" -DBUILD_NITRO=ON -DCMAKE_CUDA_COMPILER="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin/nvcc.exe" -DENABLE_MULTI_DEVICE=0 -G Ninja;
+          cd cpp\build
+          cmake .. -DCMAKE_CUDA_ARCHITECTURES="80-real;86-real" -DTRT_LIB_DIR="C:/workspace/TensorRT-9.2.0.5/lib" -DTRT_INCLUDE_DIR="C:/workspace/TensorRT-9.2.0.5/include" -DBUILD_NITRO=ON -DCMAKE_CUDA_COMPILER="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin/nvcc.exe" -DENABLE_MULTI_DEVICE=0 -G Ninja
           cmake --build . --parallel 2 --config Release'
       
       - name: create nitro artifact with dll file
