@@ -52,8 +52,8 @@ if(NOT WIN32) # Linux
   # Use pkg-config to find the SentencePiece library
   pkg_search_module(SENTENCEPIECE REQUIRED sentencepiece)
 else() # Windows
-  set(SENTENCEPIECE_INCLUDE_DIRS "C:/workspace/tensorrt-llm-nitro/cpp/tensorrt_llm/nitro/build_deps/_install/include")
-  set(SENTENCEPIECE_LIBRARY_DIRS "C:/workspace/tensorrt-llm-nitro/cpp/tensorrt_llm/nitro/build_deps/_install/lib")
+  set(SENTENCEPIECE_INCLUDE_DIRS "${CMAKE_PREFIX_PATH}/include")
+  set(SENTENCEPIECE_LIBRARY_DIRS "${CMAKE_PREFIX_PATH}/lib")
 endif()
 
 include_directories(${PROJECT_SOURCE_DIR}/include ${SENTENCEPIECE_INCLUDE_DIRS})
