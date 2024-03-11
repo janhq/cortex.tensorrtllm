@@ -36,14 +36,19 @@ jobs:
         continue-on-error: true
         run: |
           Copy-Item -Path 'C:\workspace\nitro-tensorrt-llm\cpp\build' -Destination '.\cpp' -Recurse
-          rm .\cpp\build\CMakeCache.txt
 
       - name: Copy build cache `nitro build_deps`
         shell: powershell
         continue-on-error: true
         run: |
           Copy-Item -Path 'C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro\build_deps' -Destination '.\cpp\tensorrt_llm\nitro' -Recurse
-          rm .\cpp\tensorrt_llm\nitro\build_deps\nitro_deps\CMakeCache.txt
+
+      - name: Override path in CMakeCache.txt
+        shell: powershell
+        run: |
+          Get-ChildItem .\cpp -Recurse -Filter CMakeCache.txt | ForEach-Object {
+              (Get-Content $_.FullName) -replace [regex]::Escape("c:/workspace/nitro-tensorrt-llm"), "c:/w/nitro-tensorrt-llm/nitro-tensorrt-llm" | Set-Content $_.FullName
+          }
 
       - uses: nick-fields/retry@v3
         with:
