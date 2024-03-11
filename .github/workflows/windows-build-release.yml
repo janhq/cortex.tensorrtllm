@@ -84,7 +84,7 @@ jobs:
           cp -Force C:\workspace\cuDNN\bin\cudnn64_8.dll .\build_nitro
           ls .\build_nitro
           dotnet tool install --global AzureSignTool
-          %USERPROFILE%\.dotnet\tools\azuresigntool.exe sign -kvu "${{ secrets.AZURE_KEY_VAULT_URI }}" -kvi "${{ secrets.AZURE_CLIENT_ID }}" -kvt "${{ secrets.AZURE_TENANT_ID }}" -kvs "${{ secrets.AZURE_CLIENT_SECRET }}" -kvc ${{ secrets.AZURE_CERT_NAME }} -tr http://timestamp.globalsign.com/tsa/r6advanced1 -v ".\build_nitro\nitro.exe"
+          C:\Users\ContainerAdministrator\.dotnet\tools\azuresigntool.exe sign -kvu "${{ secrets.AZURE_KEY_VAULT_URI }}" -kvi "${{ secrets.AZURE_CLIENT_ID }}" -kvt "${{ secrets.AZURE_TENANT_ID }}" -kvs "${{ secrets.AZURE_CLIENT_SECRET }}" -kvc ${{ secrets.AZURE_CERT_NAME }} -tr http://timestamp.globalsign.com/tsa/r6advanced1 -v ".\build_nitro\nitro.exe"
           tar -czvf nitro.tar.gz .\build_nitro
 
       - uses: actions/upload-release-asset@v1.0.1
