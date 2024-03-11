@@ -56,6 +56,9 @@ else() # Windows
   set(SENTENCEPIECE_LIBRARY_DIRS "${CMAKE_PREFIX_PATH}/lib")
 endif()
 
+message(STATUS "SentencePiece library dirs: ${SENTENCEPIECE_LIBRARY_DIRS}")
+message(STATUS "SentencePiece header dirs: ${SENTENCEPIECE_INCLUDE_DIRS}")
+
 include_directories(${PROJECT_SOURCE_DIR}/include ${SENTENCEPIECE_INCLUDE_DIRS})
 
 link_directories(${SENTENCEPIECE_LIBRARY_DIRS})
@@ -71,7 +74,7 @@ add_subdirectory(${CXXOPTS_SRC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cxxopts)
 add_executable(nitro main.cc)
 
 target_link_libraries(
-  nitro PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE Drogon::Drogon ${CMAKE_THREAD_LIBS_INIT} )
+  nitro PUBLIC ${SHARED_TARGET} sentencepiece nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE Drogon::Drogon ${CMAKE_THREAD_LIBS_INIT} )
 
 
 target_compile_features(nitro PRIVATE cxx_std_17)

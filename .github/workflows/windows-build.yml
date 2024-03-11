@@ -17,38 +17,7 @@ jobs:
           submodules: recursive
           lfs: true
 
-      - name: remove existing build folder
-        shell: powershell
-        run: |
-          Remove-Item -Path '.\build' -Recurse -ErrorAction SilentlyContinue
-          Remove-Item -Path '.\build_nitro' -Recurse -ErrorAction SilentlyContinue
-          Remove-Item -Path '.\cpp\build' -Recurse -ErrorAction SilentlyContinue
-          Remove-Item -Path '.\cpp\tensorrt_llm\nitro\build_deps' -Recurse -ErrorAction SilentlyContinue
-
-      - name: Copy build cache `build`
-        shell: powershell
-        continue-on-error: true
-        run: |
-          Copy-Item -Path 'C:\workspace\nitro-tensorrt-llm\build' -Destination '.' -Recurse
-
-      - name: Copy build cache `cpp build`
-        shell: powershell
-        continue-on-error: true
-        run: |
-          Copy-Item -Path 'C:\workspace\nitro-tensorrt-llm\cpp\build' -Destination '.\cpp' -Recurse
-
-      - name: Copy build cache `nitro build_deps`
-        shell: powershell
-        continue-on-error: true
-        run: |
-          Copy-Item -Path 'C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro\build_deps' -Destination '.\cpp\tensorrt_llm\nitro' -Recurse
-
-      - name: Override path in CMakeCache.txt
-        shell: powershell
-        run: |
-          Get-ChildItem .\cpp -Recurse -Filter CMakeCache.txt | ForEach-Object {
-              (Get-Content $_.FullName) -replace [regex]::Escape("c:/workspace/nitro-tensorrt-llm"), "c:/w/nitro-tensorrt-llm/nitro-tensorrt-llm" | Set-Content $_.FullName
-          }
+      - run: cp -r -Force C:\w\nitro-tensorrt-llm\nitro-tensorrt-llm C:\workspace
 
       - uses: nick-fields/retry@v3
         with:
@@ -56,23 +25,17 @@ jobs:
           max_attempts: 3
           shell: powershell
           command: |
-            cd cpp\tensorrt_llm\nitro; powershell -Command cmake -S ./nitro_deps -B ./build_deps/nitro_deps; powershell -Command cmake --build ./build_deps/nitro_deps --config Release
+            cd C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro; powershell -Command cmake -S ./nitro_deps -B ./build_deps/nitro_deps; powershell -Command cmake --build ./build_deps/nitro_deps --config Release
 
       - name: Build Python
         shell: powershell
         run: |
-          powershell -Command "python .\scripts\build_wheel.py -a '80-real;86-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'"
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v2
-        with:
-          name: python-wheel
-          path: ./build
+          cd C:\workspace\nitro-tensorrt-llm; powershell -Command "python .\scripts\build_wheel.py -a '80-real;86-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'"
 
       - name: Build nitro
         shell: powershell
         run: |
-          cd cpp\build
+          cd C:\workspace\nitro-tensorrt-llm\cpp\build
           powershell -Command "cmake .. -DCMAKE_CUDA_ARCHITECTURES='80-real;86-real' -DTRT_LIB_DIR='C:/workspace/TensorRT-9.2.0.5/lib' -DTRT_INCLUDE_DIR='C:/workspace/TensorRT-9.2.0.5/include' -DBUILD_NITRO=ON -DCMAKE_CUDA_COMPILER='C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin/nvcc.exe' -DENABLE_MULTI_DEVICE=0 -G Ninja"
           powershell -Command "cmake --build . --parallel 2 --config Release"
       
@@ -80,12 +43,12 @@ jobs:
         shell: powershell
         run: |
           mkdir build_nitro
-          cp .\cpp\build\tensorrt_llm\nitro\nitro.exe .\build_nitro
-          cp .\cpp\build\tensorrt_llm\tensorrt_llm.dll .\build_nitro
-          cp .\cpp\build\tensorrt_llm\plugins\nvinfer_plugin_tensorrt_llm.dll .\build_nitro
-          cp .\cpp\tensorrt_llm\nitro\build_deps\_install\bin\zlib.dll .\build_nitro
-          cp .\C:\workspace\cuDNN\cudnn_ops_infer64_8.dll .\build_nitro
-          cp .\C:\workspace\cuDNN\cudnn64_8.dll .\build_nitro
+          cp C:\workspace\nitro-tensorrt-llm\cpp\build\tensorrt_llm\nitro\nitro.exe .\build_nitro
+          cp C:\workspace\nitro-tensorrt-llm\cpp\build\tensorrt_llm\tensorrt_llm.dll .\build_nitro
+          cp C:\workspace\nitro-tensorrt-llm\cpp\build\tensorrt_llm\plugins\nvinfer_plugin_tensorrt_llm.dll .\build_nitro
+          cp C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro\build_deps\_install\bin\zlib.dll .\build_nitro
+          cp C:\workspace\cuDNN\bin\cudnn_ops_infer64_8.dll .\build_nitro
+          cp C:\workspace\cuDNN\bin\cudnn64_8.dll .\build_nitro
           ls .\build_nitro
 
       - name: Upload Artifact
@@ -93,3 +56,9 @@ jobs:
         with:
           name: nitro-tensorrt-llm-windows-ampere
           path: ./build_nitro
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: python-wheel
+          path: C:/workspace/nitro-tensorrt-llm/build
