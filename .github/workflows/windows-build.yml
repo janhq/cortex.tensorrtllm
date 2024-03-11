@@ -36,12 +36,14 @@ jobs:
         continue-on-error: true
         run: |
           Copy-Item -Path 'C:\workspace\nitro-tensorrt-llm\cpp\build' -Destination '.\cpp' -Recurse
+          rm .\cpp\build\CMakeCache.txt
 
       - name: Copy build cache `nitro build_deps`
         shell: powershell
         continue-on-error: true
         run: |
           Copy-Item -Path 'C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro\build_deps' -Destination '.\cpp\tensorrt_llm\nitro' -Recurse
+          rm .\cpp\tensorrt_llm\nitro\build_deps\nitro_deps\CMakeCache.txt
 
       - uses: nick-fields/retry@v3
         with:
@@ -66,8 +68,8 @@ jobs:
         shell: powershell
         run: |
           cd cpp\build
-          powershell -Command cmake .. -DCMAKE_CUDA_ARCHITECTURES="80-real;86-real" -DTRT_LIB_DIR="C:/workspace/TensorRT-9.2.0.5/lib" -DTRT_INCLUDE_DIR="C:/workspace/TensorRT-9.2.0.5/include" -DBUILD_NITRO=ON -DCMAKE_CUDA_COMPILER="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin/nvcc.exe" -DENABLE_MULTI_DEVICE=0 -G Ninja
-          powershell -Command cmake --build . --parallel 2 --config Release
+          powershell -Command "cmake .. -DCMAKE_CUDA_ARCHITECTURES='80-real;86-real' -DTRT_LIB_DIR='C:/workspace/TensorRT-9.2.0.5/lib' -DTRT_INCLUDE_DIR='C:/workspace/TensorRT-9.2.0.5/include' -DBUILD_NITRO=ON -DCMAKE_CUDA_COMPILER='C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin/nvcc.exe' -DENABLE_MULTI_DEVICE=0 -G Ninja"
+          powershell -Command "cmake --build . --parallel 2 --config Release"
       
       - name: create nitro artifact with dll file
         shell: powershell
