@@ -1,4 +1,4 @@
-name: Release for Windows
+name: Release for python Windows
 on:
   push:
     tags: ["python-windows-*"]

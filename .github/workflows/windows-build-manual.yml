@@ -1,8 +1,5 @@
 name: Manuall Build for Windows
 on:
-  push:
-    branches:
-      - tensorrt-llm-nitro-rel
   workflow_dispatch:
 
 jobs:
