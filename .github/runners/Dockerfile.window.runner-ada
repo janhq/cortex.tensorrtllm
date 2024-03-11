@@ -261,7 +261,7 @@ RUN powershell -Command \
 RUN setx Path "%Path%;C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools"
 
 RUN VsDevCmd.bat -arch=amd64 && \
-    powershell.exe -NoLogo -ExecutionPolicy Bypass "cd nitro-tensorrt-llm; python .\scripts\build_wheel.py -a '89-real;90-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'"
+    powershell.exe -NoLogo -ExecutionPolicy Bypass "cd nitro-tensorrt-llm; python .\scripts\build_wheel.py -a '89-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'"
 
 # # -----------------------------------------------------------------------------
 
@@ -284,6 +284,8 @@ RUN powershell -Command \
 
 ADD runner.ps1 ./runner.ps1
 
-RUN New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+RUN powershell -Command New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+
+RUN powershell -Command icacls 'C:\workspace\nitro-tensorrt-llm' /grant 'Everyone:F' /T
 
 CMD ["powershell.exe", "-ExecutionPolicy", "Unrestricted", "-File", ".\\runner.ps1"]

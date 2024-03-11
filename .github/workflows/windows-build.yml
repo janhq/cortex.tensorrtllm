@@ -23,32 +23,33 @@ jobs:
           Remove-Item -Path '.\build' -Recurse -ErrorAction SilentlyContinue
           Remove-Item -Path '.\build_nitro' -Recurse -ErrorAction SilentlyContinue
           Remove-Item -Path '.\cpp\build' -Recurse -ErrorAction SilentlyContinue
-      
+          Remove-Item -Path '.\cpp\tensorrt_llm\nitro\build_deps' -Recurse -ErrorAction SilentlyContinue
+
       - name: Copy build cache `build`
-        shell: powershell
+        shell: bash
         continue-on-error: true
         run: |
-          robocopy 'C:\workspace\nitro-tensorrt-llm\build' '.' /E
+          cp -r /c/workspace/nitro-tensorrt-llm/build '.'
 
       - name: Copy build cache `cpp build`
-        shell: powershell
+        shell: bash
         continue-on-error: true
         run: |
-          robocopy 'C:\workspace\nitro-tensorrt-llm\cpp\build' '.\cpp' /E
+          cp -r /c/workspace/nitro-tensorrt-llm/cpp/build' './cpp'
 
       - name: Copy build cache `nitro build_deps`
         shell: powershell
         continue-on-error: true
         run: |
-          robocopy 'C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro\build_deps' '.\cpp\tensorrt_llm\nitro\' /E
+          cp -r /c/workspace/nitro-tensorrt-llm/cpp/tensorrt_llm/nitro/build_deps' './cpp/tensorrt_llm/nitro/'
 
       - uses: nick-fields/retry@v3
         with:
           timeout_minutes: 45
           max_attempts: 3
-          shell: powershell
+          shell: bash
           command: |
-            cd cpp\tensorrt_llm\nitro; powershell -Command cmake -S ./nitro_deps -B ./build_deps/nitro_deps; powershell -Command cmake --build ./build_deps/nitro_deps --config Release
+            cd ./cpp/tensorrt_llm/nitro && cmake -S ./nitro_deps -B ./build_deps/nitro_deps; powershell -Command cmake --build ./build_deps/nitro_deps --config Release
 
       - name: Build Python
         shell: powershell

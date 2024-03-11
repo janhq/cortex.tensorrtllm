@@ -286,4 +286,6 @@ ADD runner.ps1 ./runner.ps1
 
 RUN powershell -Command New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
 
+RUN powershell -Command icacls 'C:\workspace\nitro-tensorrt-llm' /grant 'Everyone:F' /T
+
 CMD ["powershell.exe", "-ExecutionPolicy", "Unrestricted", "-File", ".\\runner.ps1"]
