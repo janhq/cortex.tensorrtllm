@@ -26,35 +26,35 @@ jobs:
           Remove-Item -Path '.\cpp\tensorrt_llm\nitro\build_deps' -Recurse -ErrorAction SilentlyContinue
 
       - name: Copy build cache `build`
-        shell: bash
+        shell: powershell
         continue-on-error: true
         run: |
-          cp -r /c/workspace/nitro-tensorrt-llm/build '.'
+          Copy-Item -Path 'C:\workspace\nitro-tensorrt-llm\build' -Destination '.' -Recurse
 
       - name: Copy build cache `cpp build`
-        shell: bash
+        shell: powershell
         continue-on-error: true
         run: |
-          cp -r /c/workspace/nitro-tensorrt-llm/cpp/build' './cpp'
+          Copy-Item -Path 'C:\workspace\nitro-tensorrt-llm\cpp\build' -Destination '.\cpp' -Recurse
 
       - name: Copy build cache `nitro build_deps`
         shell: powershell
         continue-on-error: true
         run: |
-          cp -r /c/workspace/nitro-tensorrt-llm/cpp/tensorrt_llm/nitro/build_deps' './cpp/tensorrt_llm/nitro/'
+          Copy-Item -Path 'C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro\build_deps' -Destination '.\cpp\tensorrt_llm\nitro' -Recurse
 
       - uses: nick-fields/retry@v3
         with:
           timeout_minutes: 45
           max_attempts: 3
-          shell: bash
+          shell: powershell
           command: |
-            cd ./cpp/tensorrt_llm/nitro && cmake -S ./nitro_deps -B ./build_deps/nitro_deps; powershell -Command cmake --build ./build_deps/nitro_deps --config Release
+            cd cpp\tensorrt_llm\nitro; powershell -Command cmake -S ./nitro_deps -B ./build_deps/nitro_deps; powershell -Command cmake --build ./build_deps/nitro_deps --config Release
 
       - name: Build Python
         shell: powershell
         run: |
-          powershell -Command python .\scripts\build_wheel.py -a '80-real;86-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'
+          powershell -Command "python .\scripts\build_wheel.py -a '80-real;86-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v2
