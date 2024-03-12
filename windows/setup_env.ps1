@@ -2,7 +2,9 @@
 param (
     [switch]$skipCUDA,
     [switch]$skipPython,
-    [switch]$skipMPI
+    [switch]$skipMPI,
+    [switch]$skipCuDNN,
+    [switch]$skipTensorRT
 )
 
 # Set the error action preference to 'Stop' for the entire script.
@@ -58,4 +60,49 @@ if (-not ($skipMPI)) {
     Write-Output "Skipping MPI installation"
 }
 
-# TODO Automate cuDNN installation
+# Function to safely add a path to the system PATH environment variable without exceeding the 1024-character limit
+Function Add-ToSystemPath([string]$newPath) {
+    $currentPath = [System.Environment]::GetEnvironmentVariable('Path', [System.EnvironmentVariableTarget]::Machine)
+    $newPathValue = "$currentPath;$newPath"
+
+    if ($newPathValue.Length -le 1024) {
+        [System.Environment]::SetEnvironmentVariable('Path', $newPathValue, [System.EnvironmentVariableTarget]::Machine)
+        Write-Output "Added $newPath to system PATH."
+    } else {
+        Write-Output "Cannot add $newPath to system PATH because it would exceed the 1024-character limit."
+    }
+}
+
+# Install CuDNN 8.9
+if (-not ($skipCuDNN)) {
+    Write-Output "Downloading NVIDIA CuDNN for Windows"
+    Invoke-WebRequest -Uri 'https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/9.2.0/tensorrt-9.2.0.5.windows10.x86_64.cuda-12.2.llm.beta.zip' -OutFile 'cudnn.zip'
+    Write-Output "Extracting NVIDIA CuDNN"
+    $cuDNNExtractPath = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CuDNN\v8.9'
+    Expand-Archive -Path 'cudnn.zip' -DestinationPath $cuDNNExtractPath
+    Write-Output "Removing CuDNN installer"
+    Remove-Item -Path 'cudnn.zip' -Force
+    # Add both bin and lib directories to the system PATH
+    Add-ToSystemPath "$cuDNNExtractPath\bin"
+    Add-ToSystemPath "$cuDNNExtractPath\lib"
+    Write-Output "Done CuDNN installation"
+} else {
+    Write-Output "Skipping CuDNN installation"
+}
+
+# Install TensorRT 9.2
+if (-not ($skipTensorRT)) {
+    Write-Output "Downloading NVIDIA TensorRT for Windows"
+    Invoke-WebRequest -Uri 'https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/cudnn-windows-x86_64-9.0.0.312_cuda12-archive.zip' -OutFile 'tensorrt.zip'
+    Write-Output "Extracting NVIDIA TensorRT"
+    $tensorRTExtractPath = 'C:\Program Files\NVIDIA GPU Computing Toolkit\TensorRT\v9.2'
+    Expand-Archive -Path 'tensorrt.zip' -DestinationPath $tensorRTExtractPath
+    Write-Output "Removing TensorRT installer"
+    Remove-Item -Path 'tensorrt.zip' -Force
+    # Add both lib and bin directories to the system PATH
+    Add-ToSystemPath "$tensorRTExtractPath\lib"
+    Add-ToSystemPath "$tensorRTExtractPath\bin"
+    Write-Output "Done TensorRT installation"
+} else {
+    Write-Output "Skipping TensorRT installation"
+}
