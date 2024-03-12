@@ -72,7 +72,7 @@ jobs:
       - name: Compress
         shell: powershell
         run: |
-          cd C:\workspace\nitro-tensorrt-llm\build\*.whl
+          cd C:\workspace\nitro-tensorrt-llm\build\
           tar.exe -czvf ${{ github.workspace }}/python.tar.gz .\*.whl
 
       - uses: actions/upload-release-asset@v1.0.1
