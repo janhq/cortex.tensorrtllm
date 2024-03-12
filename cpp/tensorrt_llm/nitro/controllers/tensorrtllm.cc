@@ -292,8 +292,6 @@ void tensorrtllm::chat_completion(
 
                 std::string rawText = inferState->textsToStream.front();
                 inferState->textsToStream.pop();
-                                        std::cout << rawText << std::flush;
-
                 if (handleMatch(rawText, inferState) && rawText != "[DONE]")
                 {
                     continue;
