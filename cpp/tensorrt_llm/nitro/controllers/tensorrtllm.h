@@ -107,9 +107,6 @@ private:
     SamplingConfig samplingConfig{1};
     std::unique_ptr<GptModelConfig> modelConfig;
     std::shared_ptr<TllmLogger> logger;
-    std::string example_string{
-        "<|im_start|>system\nYou are a helpful assistant<|im_end|>\n<|im_start|>user\nPlease write a long and sad "
-        "story<|im_end|>\n<|im_start|>assistant"};
     std::string user_prompt{"<|im_end|>\n<|im_start|>user\n"};
     std::string ai_prompt{"<|im_end|>\n<|im_start|>assistant\n"};
     std::string system_prompt{"<|im_start|>system\n"};
