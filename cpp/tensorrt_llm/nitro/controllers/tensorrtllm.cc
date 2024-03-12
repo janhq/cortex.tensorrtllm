@@ -110,9 +110,9 @@ GenerationInput::TensorPtr tensorrtllm::getTensorSingleStopWordList(int stopToke
 
 GenerationInput::TensorPtr tensorrtllm::getTensorChatMLStopWordList()
 {
-    std::vector<int32_t> stopWordsTokens = {28789, 28766, 321, 28730, 416, 28766, 28767, 32000, 6, 8, -1, -1, -1, -1,
+    std::vector<int32_t> stopWordsTokens = {28789, 28766, 321, 28730, 416, 28766, 28767, 2,32000, 7, 8,9, -1, -1, -1, -1,
         -1, -1}; // Extend with -1 for increased length
-    return gptSession->getBufferManager().copyFrom(stopWordsTokens, ITensor::makeShape({1, 2, 8}), MemoryType::kGPU);
+    return gptSession->getBufferManager().copyFrom(stopWordsTokens, ITensor::makeShape({1, 2, 9}), MemoryType::kGPU);
 }
 
 GenerationInput tensorrtllm::createGenerationInput(std::vector<int32_t> inputIdsHost)
@@ -292,14 +292,15 @@ void tensorrtllm::chat_completion(
 
                 std::string rawText = inferState->textsToStream.front();
                 inferState->textsToStream.pop();
-                if (handleMatch(rawText, inferState))
+                                        std::cout << rawText << std::flush;
+
+                if (handleMatch(rawText, inferState) && rawText != "[DONE]")
                 {
                     continue;
                 };
 
                 if (rawText == "[DONE]")
                 {
-                    LOG_INFO << "End of result";
                     const std::string str
                         = "data: " + create_return_json(nitro_utils::generate_random_string(20), "_", "", "stop")
                         + "\n\n" + "data: [DONE]" + "\n\n";
