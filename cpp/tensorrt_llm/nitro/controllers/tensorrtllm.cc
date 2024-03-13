@@ -184,7 +184,7 @@ void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int
         removeId(outputIdsHostDecode, 0);
         std::string text = self->nitro_tokenizer->decode(outputIdsHostDecode);
 
-        if (inferState->prevPos > 0 && inferState->prevPos < text.size())
+        if (inferState->prevPos >= 0 && inferState->prevPos < text.size())
         {
             // Valid prevPos, proceed with slicing the string from prevPos to the end
             std::string stringTok(text.begin() + inferState->prevPos, text.end());
