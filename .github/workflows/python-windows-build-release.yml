@@ -53,7 +53,7 @@ jobs:
           submodules: recursive
           lfs: true
 
-      - run: cp -r -Force C:\w\nitro-tensorrt-llm\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm
+      # - run: cp -r -Force C:\w\nitro-tensorrt-llm\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm
 
       - uses: nick-fields/retry@v3
         with:
