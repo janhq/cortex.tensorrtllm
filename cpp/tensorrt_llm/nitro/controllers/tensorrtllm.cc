@@ -78,6 +78,7 @@ bool handleMatch(const std::string& rawText, std::shared_ptr<inferenceState> inf
         inferState->reset();
         return false; // Reset to start if sequence breaks
     }
+    return false;
 }
 
 // Only support single token stopping point now
@@ -202,6 +203,7 @@ void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int
             inferState->textsToStream.push("[DONE]");
             return;
         }
+        return;
     };
     // The rest of the logic inside the `chat_completion` remains unchanged...
     // After finishing the setup, call the inference logic
@@ -279,11 +281,12 @@ void tensorrtllm::chat_completion(
     std::thread infThread(inferenceThread, inferState, inputIdsHost, callback, this);
     infThread.detach(); // Detach the thread to allow it to run independently
 
-    auto chunked_content_provider = [inferState](char* pBuffer, std::size_t nBuffSize) -> std::size_t
+    auto chunked_content_provider = [this,inferState](char* pBuffer, std::size_t nBuffSize) -> std::size_t
     {
         if (!pBuffer)
         {
             LOG_INFO << "Connection closed or buffer is null. Reset context";
+            inferState->isFinished = true;
             return 0; // Indicate no more data to send
         }
 
