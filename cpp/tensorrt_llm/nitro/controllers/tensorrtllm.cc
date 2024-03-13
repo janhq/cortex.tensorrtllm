@@ -50,10 +50,18 @@ bool handleMatch(const std::string& rawText, std::shared_ptr<inferenceState> inf
 {
     if (inferState->isComplete())
     {
-        return true;
+        return false;
     }
-
-    if (rawText == inferState->sequence[inferState->stopWordMatchLen])
+    if (inferState->stopWordMatchLen == 0)
+    {
+        if (rawText.find('<') != std::string::npos) // Found "<" anywhere in the text
+        {
+            inferState->stopWordMatchLen++; // Move to next state
+            inferState->prevText = rawText;
+            return true;
+        }
+    }
+    else if (rawText == inferState->sequence[inferState->stopWordMatchLen])
     {
         inferState->stopWordMatchLen++; // Move to next state
         inferState->prevText = rawText;
@@ -110,9 +118,9 @@ GenerationInput::TensorPtr tensorrtllm::getTensorSingleStopWordList(int stopToke
 
 GenerationInput::TensorPtr tensorrtllm::getTensorChatMLStopWordList()
 {
-    std::vector<int32_t> stopWordsTokens = {28789, 28766, 321, 28730, 416, 28766, 28767, 32000, 6, 8, -1, -1, -1, -1,
-        -1, -1}; // Extend with -1 for increased length
-    return gptSession->getBufferManager().copyFrom(stopWordsTokens, ITensor::makeShape({1, 2, 8}), MemoryType::kGPU);
+    std::vector<int32_t> stopWordsTokens = {28789, 28766, 321, 28730, 416, 28766, 28767, 2, 32000, 7, 8, 9, -1, -1, -1,
+        -1, -1, -1}; // Extend with -1 for increased length
+    return gptSession->getBufferManager().copyFrom(stopWordsTokens, ITensor::makeShape({1, 2, 9}), MemoryType::kGPU);
 }
 
 GenerationInput tensorrtllm::createGenerationInput(std::vector<int32_t> inputIdsHost)
