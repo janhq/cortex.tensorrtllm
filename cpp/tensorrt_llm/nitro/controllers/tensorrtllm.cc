@@ -256,7 +256,6 @@ void tensorrtllm::chat_completion(
     samplingConfig.topP = std::vector{completion.top_p};
     samplingConfig.minLength = std::vector{outputLen};
     samplingConfig.repetitionPenalty = std::vector{completion.frequency_penalty};
-
     // Input preparation
 
     std::thread infThread(inferenceThread, inferState, inputIdsHost, callback, this,samplingConfig,inputLen,outputLen);
