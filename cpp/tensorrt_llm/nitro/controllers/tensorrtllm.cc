@@ -162,8 +162,6 @@ void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int
     samplingConfig.minLength = std::vector{outputLen};
     samplingConfig.repetitionPenalty = std::vector{1.3f};
 
-    std::cout << "Start Nitro testing session: " << std::endl;
-
     // Input preparation
 
     GenerationInput generationInput = self->createGenerationInput(inputIdsHost);
@@ -189,7 +187,6 @@ void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int
             // Valid prevPos, proceed with slicing the string from prevPos to the end
             std::string stringTok(text.begin() + inferState->prevPos, text.end());
             std::lock_guard<std::mutex> guard(inferState->queueMutex); // Protect access with a lock
-            std::cout << stringTok << std::endl;
             inferState->textsToStream.push(stringTok);
         }
         else if (inferState->prevPos >= text.size())
@@ -274,8 +271,6 @@ void tensorrtllm::chat_completion(
     samplingConfig.topP = std::vector{0.0f};
     samplingConfig.minLength = std::vector{outputLen};
     samplingConfig.repetitionPenalty = std::vector{1.3f};
-
-    std::cout << "Start Nitro testing session: " << std::endl;
 
     // Input preparation
 
