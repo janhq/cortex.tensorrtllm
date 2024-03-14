@@ -119,9 +119,9 @@ GenerationInput::TensorPtr tensorrtllm::getTensorSingleStopWordList(int stopToke
 
 GenerationInput::TensorPtr tensorrtllm::getTensorChatMLStopWordList()
 {
-    std::vector<int32_t> stopWordsTokens = {28789, 28766, 321, 28730, 416, 28766, 28767, 2, 32000, 7, 8, 9, -1, -1, -1,
-        -1, -1, -1}; // Extend with -1 for increased length
-    return gptSession->getBufferManager().copyFrom(stopWordsTokens, ITensor::makeShape({1, 2, 9}), MemoryType::kGPU);
+    std::vector<int32_t> stopWordsTokens = { 28766, 321, 28730, 416, 28766, 28767, 2, 32000, 6, 7, 8, -1, -1, -1,
+        -1, -1}; // Extend with -1 for increased length
+    return gptSession->getBufferManager().copyFrom(stopWordsTokens, ITensor::makeShape({1, 2, 8}), MemoryType::kGPU);
 }
 
 GenerationInput tensorrtllm::createGenerationInput(std::vector<int32_t> inputIdsHost)
@@ -189,6 +189,7 @@ void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int
             // Valid prevPos, proceed with slicing the string from prevPos to the end
             std::string stringTok(text.begin() + inferState->prevPos, text.end());
             std::lock_guard<std::mutex> guard(inferState->queueMutex); // Protect access with a lock
+            std::cout << stringTok << std::endl;
             inferState->textsToStream.push(stringTok);
         }
         else if (inferState->prevPos >= text.size())
