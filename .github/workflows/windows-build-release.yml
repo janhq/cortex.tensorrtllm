@@ -84,7 +84,7 @@ jobs:
           cp -Force C:\workspace\nitro-tensorrt-llm\cpp\tensorrt_llm\nitro\build_deps\_install\bin\zlib.dll .\build_nitro
           cp -Force C:\workspace\cuDNN\bin\cudnn_ops_infer64_8.dll .\build_nitro
           cp -Force C:\workspace\TensorRT-9.2.0.5\lib\nvinfer.dll .\build_nitro
-          cp -Force C:\Windows\SysWOW64\msmpi.dll .\build_nitro
+          cp -Force C:\Windows\System32\msmpi.dll .\build_nitro
           cp -Force C:\workspace\cuDNN\bin\cudnn64_8.dll .\build_nitro
           ls .\build_nitro
           dotnet tool install --global AzureSignTool
