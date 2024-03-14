@@ -21,11 +21,11 @@ inline inferences::ChatCompletionRequest fromRequest(const HttpRequest& req) {
   inferences::ChatCompletionRequest completion;
   if (jsonBody) {
     completion.stream = (*jsonBody).get("stream", false).asBool();
-    completion.max_tokens = (*jsonBody).get("max_tokens", 500).asInt();
+    completion.max_tokens = (*jsonBody).get("max_tokens", 2048).asInt();
     completion.top_p = (*jsonBody).get("top_p", 0.95).asFloat();
-    completion.temperature = (*jsonBody).get("temperature", 0.8).asFloat();
+    completion.temperature = (*jsonBody).get("temperature", 0.0f).asFloat();
     completion.frequency_penalty =
-        (*jsonBody).get("frequency_penalty", 0).asFloat();
+        (*jsonBody).get("frequency_penalty", 1.3).asFloat();
     completion.presence_penalty =
         (*jsonBody).get("presence_penalty", 0).asFloat();
     completion.messages = (*jsonBody)["messages"];
