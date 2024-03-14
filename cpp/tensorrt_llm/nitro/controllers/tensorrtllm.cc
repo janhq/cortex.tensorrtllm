@@ -119,9 +119,8 @@ GenerationInput::TensorPtr tensorrtllm::getTensorSingleStopWordList(int stopToke
 
 GenerationInput::TensorPtr tensorrtllm::getTensorChatMLStopWordList()
 {
-    std::vector<int32_t> stopWordsTokens = { 28766, 321, 28730, 416, 28766, 28767, 2, 32000, 6, 7, 8, -1, -1, -1,
-        -1, -1}; // Extend with -1 for increased length
-    return gptSession->getBufferManager().copyFrom(stopWordsTokens, ITensor::makeShape({1, 2, 8}), MemoryType::kGPU);
+    std::vector<int32_t> stopWordsTokens =  {321, 28730, 416, 2, 32000, 3, 4, 5, -1, -1}; // Extend with -1 for increased length
+    return gptSession->getBufferManager().copyFrom(stopWordsTokens, ITensor::makeShape({1, 2, 5}), MemoryType::kGPU);
 }
 
 GenerationInput tensorrtllm::createGenerationInput(std::vector<int32_t> inputIdsHost)
@@ -148,19 +147,8 @@ GenerationOutput tensorrtllm::createGenerationOutput()
 }
 
 void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int32_t> inputIdsHost,
-    std::function<void(const HttpResponsePtr&)> callback, tensorrtllm* self)
+    std::function<void(const HttpResponsePtr&)> callback, tensorrtllm* self,SamplingConfig samplingConfig,int inputLen, int outputLen)
 {
-    const int inputLen = inputIdsHost.size();
-    const int outputLen = 2048 - inputLen;
-
-    // Create sampling config
-    SamplingConfig samplingConfig{1};
-    samplingConfig.temperature = std::vector{0.0f};
-    samplingConfig.randomSeed = std::vector{static_cast<uint64_t>(42ull)};
-    samplingConfig.topK = std::vector{40};
-    samplingConfig.topP = std::vector{0.0f};
-    samplingConfig.minLength = std::vector{outputLen};
-    samplingConfig.repetitionPenalty = std::vector{1.3f};
 
     // Input preparation
 
@@ -216,12 +204,11 @@ void tensorrtllm::chat_completion(
 
     nlohmann::json data;
 
-    data["stream"] = completion.stream;
-    data["n_predict"] = completion.max_tokens;
-    data["top_p"] = completion.top_p;
-    data["temperature"] = completion.temperature;
-    data["frequency_penalty"] = completion.frequency_penalty;
+    //data["stream"] = completion.stream;
+    //data["n_predict"] = completion.max_tokens;
     data["presence_penalty"] = completion.presence_penalty;
+
+
     const Json::Value& messages = completion.messages;
 
     // Format the input from user
@@ -261,20 +248,20 @@ void tensorrtllm::chat_completion(
 
     std::vector<int32_t> inputIdsHost = nitro_tokenizer->encode(formatted_input);
     const int inputLen = inputIdsHost.size();
-    const int outputLen = 2048 - inputLen;
+    const int outputLen = completion.max_tokens - inputLen;
 
     // Create sampling config
     SamplingConfig samplingConfig{1};
-    samplingConfig.temperature = std::vector{0.0f};
+    samplingConfig.temperature = std::vector{completion.temperature};
     samplingConfig.randomSeed = std::vector{static_cast<uint64_t>(42ull)};
     samplingConfig.topK = std::vector{40};
-    samplingConfig.topP = std::vector{0.0f};
+    samplingConfig.topP = std::vector{completion.top_p};
     samplingConfig.minLength = std::vector{outputLen};
-    samplingConfig.repetitionPenalty = std::vector{1.3f};
+    samplingConfig.repetitionPenalty = std::vector{completion.frequency_penalty};
 
     // Input preparation
 
-    std::thread infThread(inferenceThread, inferState, inputIdsHost, callback, this);
+    std::thread infThread(inferenceThread, inferState, inputIdsHost, callback, this,samplingConfig,inputLen,outputLen);
     infThread.detach(); // Detach the thread to allow it to run independently
 
     auto chunked_content_provider = [this,inferState](char* pBuffer, std::size_t nBuffSize) -> std::size_t
