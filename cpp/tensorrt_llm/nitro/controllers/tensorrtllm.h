@@ -107,9 +107,9 @@ private:
     SamplingConfig samplingConfig{1};
     std::unique_ptr<GptModelConfig> modelConfig;
     std::shared_ptr<TllmLogger> logger;
-    std::string user_prompt{"<|im_end|>\n<|im_start|>user\n"};
-    std::string ai_prompt{"<|im_end|>\n<|im_start|>assistant\n"};
-    std::string system_prompt{"<|im_start|>system\n"};
+    std::string user_prompt;
+    std::string ai_prompt;
+    std::string system_prompt;
     std::string pre_prompt;
     int batchSize = 1;
 };

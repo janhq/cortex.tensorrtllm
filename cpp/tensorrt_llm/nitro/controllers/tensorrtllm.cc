@@ -44,7 +44,7 @@ struct inferenceState
     }
 };
 
-bool handleMatch(const std::string& rawText, std::shared_ptr<inferenceState> inferState)
+bool handleMatch(std::string const& rawText, std::shared_ptr<inferenceState> inferState)
 {
     if (inferState->isComplete())
     {
@@ -80,7 +80,7 @@ bool handleMatch(const std::string& rawText, std::shared_ptr<inferenceState> inf
 }
 
 // Only support single token stopping point now
-std::string create_return_json(const std::string& id, const std::string& model, const std::string& content,
+std::string create_return_json(std::string const& id, std::string const& model, std::string const& content,
     Json::Value finish_reason = Json::Value())
 {
     Json::Value root;
@@ -117,7 +117,8 @@ GenerationInput::TensorPtr tensorrtllm::getTensorSingleStopWordList(int stopToke
 
 GenerationInput::TensorPtr tensorrtllm::getTensorChatMLStopWordList()
 {
-    std::vector<int32_t> stopWordsTokens =  {321, 28730, 416, 2, 32000, 3, 4, 5, -1, -1}; // Extend with -1 for increased length
+    std::vector<int32_t> stopWordsTokens
+        = {321, 28730, 416, 2, 32000, 3, 4, 5, -1, -1}; // Extend with -1 for increased length
     return gptSession->getBufferManager().copyFrom(stopWordsTokens, ITensor::makeShape({1, 2, 5}), MemoryType::kGPU);
 }
 
@@ -145,7 +146,8 @@ GenerationOutput tensorrtllm::createGenerationOutput()
 }
 
 void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int32_t> inputIdsHost,
-    std::function<void(const HttpResponsePtr&)> callback, tensorrtllm* self,SamplingConfig samplingConfig,int inputLen, int outputLen)
+    std::function<void(HttpResponsePtr const&)> callback, tensorrtllm* self, SamplingConfig samplingConfig,
+    int inputLen, int outputLen)
 {
 
     // Input preparation
@@ -195,22 +197,21 @@ void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int
 }
 
 void tensorrtllm::chat_completion(
-    inferences::ChatCompletionRequest&& completion, std::function<void(const HttpResponsePtr&)>&& callback)
+    inferences::ChatCompletionRequest&& completion, std::function<void(HttpResponsePtr const&)>&& callback)
 {
 
     std::string formatted_input = pre_prompt;
 
     nlohmann::json data;
 
-    //data["stream"] = completion.stream;
-    //data["n_predict"] = completion.max_tokens;
+    // data["stream"] = completion.stream;
+    // data["n_predict"] = completion.max_tokens;
     data["presence_penalty"] = completion.presence_penalty;
 
-
-    const Json::Value& messages = completion.messages;
+    Json::Value const& messages = completion.messages;
 
     // Format the input from user
-    for (const auto& message : messages)
+    for (auto const& message : messages)
     {
         std::string input_role = message["role"].asString();
         std::string role;
@@ -245,8 +246,8 @@ void tensorrtllm::chat_completion(
     std::shared_ptr<inferenceState> inferState = std::make_shared<inferenceState>();
 
     std::vector<int32_t> inputIdsHost = nitro_tokenizer->encode(formatted_input);
-    const int inputLen = inputIdsHost.size();
-    const int outputLen = completion.max_tokens - inputLen;
+    int const inputLen = inputIdsHost.size();
+    int const outputLen = completion.max_tokens - inputLen;
 
     // Create sampling config
     SamplingConfig samplingConfig{1};
@@ -258,10 +259,11 @@ void tensorrtllm::chat_completion(
     samplingConfig.repetitionPenalty = std::vector{completion.frequency_penalty};
     // Input preparation
 
-    std::thread infThread(inferenceThread, inferState, inputIdsHost, callback, this,samplingConfig,inputLen,outputLen);
+    std::thread infThread(
+        inferenceThread, inferState, inputIdsHost, callback, this, samplingConfig, inputLen, outputLen);
     infThread.detach(); // Detach the thread to allow it to run independently
 
-    auto chunked_content_provider = [this,inferState](char* pBuffer, std::size_t nBuffSize) -> std::size_t
+    auto chunked_content_provider = [this, inferState](char* pBuffer, std::size_t nBuffSize) -> std::size_t
     {
         if (!pBuffer)
         {
@@ -324,9 +326,9 @@ void tensorrtllm::chat_completion(
     return;
 };
 
-void tensorrtllm::loadModel(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback)
+void tensorrtllm::loadModel(HttpRequestPtr const& req, std::function<void(HttpResponsePtr const&)>&& callback)
 {
-    const auto& jsonBody = req->getJsonObject();
+    auto const& jsonBody = req->getJsonObject();
 
     if (!jsonBody)
     {
@@ -337,13 +339,18 @@ void tensorrtllm::loadModel(const HttpRequestPtr& req, std::function<void(const 
         return;
     }
 
-    const std::filesystem::path engineDir = jsonBody->operator[]("engine_path").asString();
+    std::filesystem::path const engineDir = jsonBody->operator[]("engine_path").asString();
+
     int ctx_len = jsonBody->get("ctx_len", 2048).asInt();
+
+    this->user_prompt = jsonBody->get("user_prompt", "<|im_end|>\n<|im_start|>user\n").asString();
+    this->ai_prompt = jsonBody->get("ai_prompt", "<|im_end|>\n<|im_start|>assistant\n").asString();
+    this->system_prompt = jsonBody->get("system_prompt", "<|im_start|>system\n").asString();
 
     logger = std::make_shared<TllmLogger>();
     logger->setLevel(nvinfer1::ILogger::Severity::kINFO);
     // Fixed settings
-    const std::string modelName = "mistral";
+    std::string const modelName = "mistral";
     initTrtLlmPlugins(logger.get());
     // Load model configuration
     std::filesystem::path jsonFileName = engineDir / "config.json";
