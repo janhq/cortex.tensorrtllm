@@ -14,6 +14,8 @@ jobs:
             cuda_arch_name: 'ada'
           - cuda_arch: '75-real'
             cuda_arch_name: 'turing'
+          - cuda_arch: '75-real;80-real;86-real;89-real'
+            cuda_arch_name: 'all'
     permissions:
       contents: write
     steps:

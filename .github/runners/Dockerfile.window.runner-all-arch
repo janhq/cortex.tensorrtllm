@@ -261,7 +261,7 @@ RUN powershell -Command \
 RUN setx Path "%Path%;C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools"
 
 RUN VsDevCmd.bat -arch=amd64 && \
-    powershell.exe -NoLogo -ExecutionPolicy Bypass "cd nitro-tensorrt-llm; python .\scripts\build_wheel.py -a '70-real;75-real;80-real;86-real;89-real;90-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'"
+    powershell.exe -NoLogo -ExecutionPolicy Bypass "cd nitro-tensorrt-llm; python .\scripts\build_wheel.py -a '75-real;80-real;86-real;89-real' --trt_root 'C:\workspace\TensorRT-9.2.0.5\'"
 
 # # -----------------------------------------------------------------------------
 
