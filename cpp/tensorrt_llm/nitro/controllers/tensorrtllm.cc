@@ -166,6 +166,8 @@ void inferenceThread(std::shared_ptr<inferenceState> inferState, std::vector<int
         // Find the last non-zero value in the output IDs starting from the end of the input sequence
         std::vector<int> outputIdsHostDecode(outputIdsHost.begin() + inputLen, outputIdsHost.end());
         removeId(outputIdsHostDecode, 0);
+        removeId(outputIdsHostDecode, 32000);
+        removeId(outputIdsHostDecode, 32001);
         std::string text = self->nitro_tokenizer->decode(outputIdsHostDecode);
 
         if (inferState->prevPos >= 0 && inferState->prevPos < text.size())
