@@ -49,7 +49,7 @@ int main(int argc, char* argv[])
     }
 
     int logical_cores = std::thread::hardware_concurrency();
-    int drogon_thread_num = 1; // temporarily set thread num to 1
+    int drogon_thread_num = std::thread::hardware_concurrency(); // temporarily set thread num to 1
     nitro_utils::nitro_logo();
 #ifdef NITRO_VERSION
     LOG_INFO << "Nitro version: " << NITRO_VERSION;
