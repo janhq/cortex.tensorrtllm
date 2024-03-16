@@ -17,6 +17,7 @@
 
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_BUILD_TYPE Release)
 
 include(CheckLanguage)
 include(cmake/modules/set_ifndef.cmake)
@@ -30,8 +31,9 @@ project(tensorrt_llm LANGUAGES CXX)
 option(BUILD_PYT "Build in PyTorch TorchScript class mode" ON)
 option(BUILD_PYBIND "Build Python bindings for C++ runtime and batch manager"
        OFF)
-option(BUILD_TESTS "Build Google tests" ON)
-option(BUILD_BENCHMARKS "Build benchmarks" ON)
+option(BUILD_TESTS "Build Google tests" OFF)
+option(BUILD_BENCHMARKS "Build benchmarks" OFF)
+option(BUILD_NITRO "Build nitro" ON)
 option(NVTX_DISABLE "Disable all NVTX features" ON)
 option(WARNING_IS_ERROR "Treat all warnings as errors" OFF)
 option(FAST_BUILD "Skip compiling some kernels to accelerate compiling" OFF)
