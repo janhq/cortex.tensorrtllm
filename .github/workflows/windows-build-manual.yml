@@ -8,12 +8,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - cuda_arch: '80-real;86-real'
-            cuda_arch_name: 'ampere'
-          - cuda_arch: '89-real'
-            cuda_arch_name: 'ada'
-          - cuda_arch: '75-real'
-            cuda_arch_name: 'turing'
+          # - cuda_arch: '80-real;86-real'
+          #   cuda_arch_name: 'ampere'
+          # - cuda_arch: '89-real'
+          #   cuda_arch_name: 'ada'
+          # - cuda_arch: '75-real'
+          #   cuda_arch_name: 'turing'
           - cuda_arch: '75-real;80-real;86-real;89-real'
             cuda_arch_name: 'all'
     permissions:
