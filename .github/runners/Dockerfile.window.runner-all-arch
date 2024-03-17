@@ -17,7 +17,7 @@ RUN powershell -Command \
     curl.exe https://delta.jan.ai/dist/windows-container-dependencies/1/cuda_12.2.2_537.13_windows.exe \
     --output "cuda_installer.exe"; \
     Start-Process cuda_installer.exe -Wait -ArgumentList '-s'; \
-    Remove-Item cuda_installer.exe -Force
+    Remove-Item cuda_installer.exe -Force;
 
 # -----------------------------------------------------------------------------
 
@@ -194,7 +194,7 @@ RUN powershell -Command \
     curl.exe https://delta.jan.ai/dist/windows-container-dependencies/1/cuDNN.zip \
     --output cuDNN.zip; \
     Expand-Archive .\cuDNN.zip -DestinationPath .; \
-    Remove-Item cuDNN.zip -Force
+    Remove-Item cuDNN.zip -Force;
 
 # Add cuDNN libs and bin to Path.
 RUN setx Path "%Path%;C:\workspace\cuDNN\lib;C:\workspace\cuDNN\bin;"
@@ -251,12 +251,12 @@ RUN powershell -Command \
     $ErrorActionPreference = 'Stop'; \
     git clone https://github.com/janhq/nitro-tensorrt-llm.git; \
     cd nitro-tensorrt-llm; \
-    git checkout tensorrt-llm-nitro-rel; \
+    git checkout rel-v0.7.1; \
     git submodule update --init --recursive; \
     pip install --no-cache-dir -r .\requirements-dev-windows.txt; \
     cd cpp/tensorrt_llm/nitro; \
     cmake -S ./nitro_deps -B ./build_deps/nitro_deps; \
-    cmake --build ./build_deps/nitro_deps --config Release
+    cmake --build ./build_deps/nitro_deps --config Release;
 
 RUN setx Path "%Path%;C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools"
 

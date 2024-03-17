@@ -1,14 +1,13 @@
 name: Release for Windows
 on:
   push:
-    tags: ["windows-v[0-9]+.[0-9]+.[0-9]+"]
+    tags: ["windows-v[0-9]+.[0-9]+.[0-9]+-tensorrt-llm-v[0-9]+.[0-9]+.[0-9]+"]
 
 jobs:
-  create-draft-release:
+  get-version:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
     permissions:
       contents: write
@@ -18,36 +17,27 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV && echo "::set-output name=version::${GITHUB_REF#refs/tags/}"
         env:
           GITHUB_REF: ${{ github.ref }}
-      - name: Create Draft Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref_name }}
-          release_name: "${{ env.VERSION }}"
-          draft: true
-          prerelease: false
+
   windows-build:
-    needs: create-draft-release
+    needs: get-version
     runs-on: windows-nitro-tensorrt-llm-${{ matrix.cuda_arch_name }}
     strategy:
       matrix:
         include:
-          - cuda_arch: '80-real;86-real'
-            cuda_arch_name: 'ampere'
-          - cuda_arch: '89-real'
-            cuda_arch_name: 'ada'
-          - cuda_arch: '75-real'
-            cuda_arch_name: 'turing'
-          # - cuda_arch: '75-real;80-real;86-real;89-real'
-          #   cuda_arch_name: 'all'
+          # - cuda_arch: '80-real;86-real'
+          #   cuda_arch_name: 'ampere'
+          # - cuda_arch: '89-real'
+          #   cuda_arch_name: 'ada'
+          # - cuda_arch: '75-real'
+          #   cuda_arch_name: 'turing'
+          - cuda_arch: '75-real;80-real;86-real;89-real'
+            cuda_arch_name: 'all'
     permissions:
       contents: write
     steps:
       - uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: "6.0.x"
+          dotnet-version: "8.0.x"
       - name: Clone
         id: checkout
         uses: actions/checkout@v3
@@ -92,12 +82,14 @@ jobs:
           cd .\build_nitro
           tar -czvf ..\nitro.tar.gz .\*
 
-      - uses: actions/upload-release-asset@v1.0.1
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
         with:
-          upload_url: ${{ needs.create-draft-release.outputs.upload_url }}
-          asset_path: ./nitro.tar.gz
-          asset_name: nitro-${{ needs.create-draft-release.outputs.version }}-amd64-tensorrt-llm-${{ matrix.cuda_arch_name }}.tar.gz
-          asset_content_type: application/gzip
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./nitro.tar.gz
+          asset_name: nitro-${{ needs.get-version.outputs.version }}-amd64-${{ matrix.cuda_arch_name }}-arch.tar.gz
+          tag: ${{ github.ref }}
+          overwrite: true
+          draft: true
+          release_name: ${{ github.ref }}
