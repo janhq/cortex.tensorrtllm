@@ -20,7 +20,9 @@
 #include "tensorrt_llm/common/memoryUtils.h"
 #include "tensorrt_llm/common/tensor.h"
 #include "tensorrt_llm/kernels/decodingCommon.h"
-#include "tensorrt_llm/layers/baseSamplingLayer.h"
+#include "tensorrt_llm/layers/baseLayer.h"
+#include "tensorrt_llm/layers/samplingParams.h"
+#include "tensorrt_llm/runtime/common.h"
 
 namespace tensorrt_llm
 {
@@ -31,19 +33,18 @@ namespace layers
 //! When both TopK and TopP are specified, layer jointly samples using TopK and TopP.
 //! When no TopK param is specified, sampling is skipped for particular request.
 template <typename T>
-class TopKSamplingLayer : public BaseSamplingLayer<T>
+class TopKSamplingLayer : public BaseLayer
 {
-public:
-    using Base = BaseSamplingLayer<T>;
-    using SetupParams = typename Base::SetupParams;
-    using ForwardParams = typename Base::ForwardParams;
+    using Base = BaseLayer;
 
-    TopKSamplingLayer(size_t maxBatchSize, size_t vocabSize, size_t vocabSizePadded, cudaStream_t stream,
+public:
+    TopKSamplingLayer(DecoderDomain const& decoderDomain, cudaStream_t stream,
         std::shared_ptr<tensorrt_llm::common::IAllocator> allocator);
     ~TopKSamplingLayer();
 
-    void setup(size_t batchSize, int32_t const* batchSlots, SetupParams const& setupParams) override;
-    void forward(DecodingOutputParams& outputs, ForwardParams& inputs) override;
+    void setup(runtime::SizeType batchSize, runtime::SizeType beamWidth, runtime::SizeType const* batchSlots,
+        std::shared_ptr<BaseSetupParams> setupParams) override;
+    void forward(std::shared_ptr<BaseOutputParams> outputs, std::shared_ptr<BaseInputParams> inputs) override;
 
     bool const* getSkipDecodeHost() const
     {
@@ -51,28 +52,23 @@ public:
     }
 
 protected:
-    bool mNormalizeLogProbs = true;
-    uint32_t mRuntimeMaxTopK = 0;
-    uint32_t* mRuntimeTopKDevice = nullptr;
-    float* mRuntimeTopPDevice = nullptr;
-    void* mSetupWorkspaceDevice = nullptr;
-    bool* mSkipDecodeDevice = nullptr;
-    bool* mSkipDecodeHost = nullptr;
+    bool mNormalizeLogProbs{true};
+    runtime::SizeType32 mRuntimeMaxTopK{0};
+    runtime::SizeType32* mRuntimeTopKDevice{nullptr};
+    float* mRuntimeTopPDevice{nullptr};
+    void* mSetupWorkspaceDevice{nullptr};
+    bool* mSkipDecodeDevice{nullptr};
+    bool* mSkipDecodeHost{nullptr};
 
-    using Base::mMaxBatchSize;
-    using Base::mVocabSize;
-    using Base::mVocabSizePadded;
-
-    using Base::mSamplingWorkspaceSize;
+    using Base::mDecoderDomain;
+    using Base::mWorkspaceSize;
     using Base::mAllocatedSize;
 
     using Base::mStream;
     using Base::mAllocator;
 
-    static constexpr uint32_t TOP_K_MAX = 1024;
-
 private:
-    void allocateBuffer(size_t batchSize);
+    void allocateBuffer(runtime::SizeType batchSize);
     void freeBuffer();
 };
 

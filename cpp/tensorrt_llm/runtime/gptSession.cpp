@@ -73,7 +73,7 @@ auto const kProfileMbIdxs = populateMicrobatchIndexes();
 
 } // namespace
 
-GptSession::GptSession(Config const& sessionConfig, GptModelConfig const& modelConfig, WorldConfig const& worldConfig,
+GptSession::GptSession(Config const& sessionConfig, ModelConfig const& modelConfig, WorldConfig const& worldConfig,
     void const* engineBuffer, std::size_t engineSize, LoggerPtr logger)
     : mModelConfig{modelConfig}
     , mWorldConfig{worldConfig}
@@ -108,6 +108,11 @@ BufferManager const& GptSession::getBufferManager() const
 nvinfer1::DataType GptSession::getLogitDataType() const
 {
     return mRuntime->getEngine().getTensorDataType("logits");
+}
+
+nvinfer1::IEngineInspector& GptSession::getEngineInspector() const
+{
+    return mRuntime->getEngineInspector();
 }
 
 void GptSession::createContexts()
@@ -164,48 +169,51 @@ void GptSession::createDecoders(SizeType batchSize, SizeType beamWidth, SizeType
         }
         constexpr SizeType maxTokensPerStep = 1;
         mDecoders.back()->setup(decodingMode, batchSize, beamWidth, maxAttentionWindow, sinkTokenLength,
-            maxSequenceLength, maxTokensPerStep, /* fusedDecoder*/ false, logitsType);
+            maxSequenceLength, maxTokensPerStep, /* fusedDecoder*/ false, logitsType, mModelConfig);
     }
 
     TLLM_LOG_TRACE("%s stop", __PRETTY_FUNCTION__);
 }
 
-void GptSession::createKvCacheManager(SizeType batchSize, SizeType beamWidth, SizeType maxAttentionWindow,
+void GptSession::createKvCacheManager(SizeType maxBatchSize, SizeType maxBeamWidth, SizeType maxAttentionWindow,
     SizeType sinkTokenLength, SizeType maxSequenceLength, KvCacheConfig const& kvCacheConfig)
 {
     TLLM_LOG_TRACE("%s start", __PRETTY_FUNCTION__);
     auto const tokensPerBlock = mModelConfig.getTokensPerBlock();
 
-    auto const kvDtype = [this]()
-    {
-        if (mModelConfig.getQuantMode().hasFp8KvCache())
-        {
-            return nvinfer1::DataType::kFP8;
-        }
-        else if (mModelConfig.getQuantMode().hasInt8KvCache())
-        {
-            return nvinfer1::DataType::kINT8;
-        }
-        else
-        {
-            return mModelConfig.getDataType();
-        }
-    }();
+    auto const kvDtype = mModelConfig.getKvDataType();
 
-    auto const maxNumBlocks = bmkv::KVCacheManager::calculateMaxNumBlocks(
+    auto const [blocksInPrimaryPool, blocksInSecondaryPool] = bmkv::KVCacheManager::calculateMaxNumBlocks(
         kvCacheConfig, kvDtype, mModelConfig, mWorldConfig, getBufferManager());
 
-    // If beamWidth > 1, use one more block for each sequence in the paged kv cache to avoid dropping the needed
+    // If maxBeamWidth > 1, use one more block for each sequence in the paged kv cache to avoid dropping the needed
     // tokens, when enabling cyclic kv cache.
-    auto const useOneMoreBlock = beamWidth > 1 && maxSequenceLength > maxAttentionWindow;
+    auto const useOneMoreBlock = maxBeamWidth > 1 && maxSequenceLength > maxAttentionWindow;
 
-    auto const localNbLayers = mModelConfig.getNbLayers(mWorldConfig.getPipelineParallelism());
+    auto const localNbLayers = mModelConfig.getNbAttentionLayers(mWorldConfig.getPipelineParallelism());
     auto const nbKvHeads = mModelConfig.getNbKvHeads();
     auto const sizePerHead = mModelConfig.getSizePerHead();
     bool constexpr enableBlockReuse{false};
     mKvCacheManager = std::make_shared<bmkv::KVCacheManager>(localNbLayers, nbKvHeads, sizePerHead, tokensPerBlock,
-        maxNumBlocks, batchSize, beamWidth, maxAttentionWindow, sinkTokenLength, useOneMoreBlock, kvDtype,
-        mRuntime->getStreamPtr(), enableBlockReuse, kvCacheConfig.useUvm);
+        blocksInPrimaryPool, blocksInSecondaryPool, maxBatchSize, maxBeamWidth, maxAttentionWindow, sinkTokenLength,
+        useOneMoreBlock, mRuntime->getStreamPtr(), enableBlockReuse, kvCacheConfig.onboardBlocks);
+
+    auto const maxBlocksPerSeq = mKvCacheManager->getMaxBlocksPerSeq();
+
+    TLLM_CHECK(mBuffers.size() == static_cast<size_t>(mMicroBatchConfig.numGenBatches));
+    for (auto& buffers : mBuffers)
+    {
+        TLLM_CHECK(buffers->transformerBuffers);
+        buffers->transformerBuffers->reshapeKvTensors(maxBatchSize, maxBeamWidth, maxBlocksPerSeq, *mRuntime);
+    }
+
+    mKvCacheManager->allocatePools(kvDtype, kvCacheConfig.useUvm);
+
+    for (auto& buffers : mBuffers)
+    {
+        buffers->transformerBuffers->setKvPoolPointers(mKvCacheManager.get());
+    }
+
     TLLM_LOG_TRACE("%s stop", __PRETTY_FUNCTION__);
 }
 
@@ -216,13 +224,17 @@ void GptSession::createCustomAllReduceWorkspace(
     setPeerAccess(mWorldConfig, true);
 
     mIpcMemoryHandles.clear();
-    const std::size_t bufferSize = std::min(static_cast<std::size_t>(maxBatchSize) * maxBeamWidth * maxSequenceLength
-            * mModelConfig.getHiddenSize() * mWorldConfig.getTensorParallelism() * sizeof(float),
-        ::tensorrt_llm::utils::customAllReduceUtils::getMaxRequiredWorkspaceSize(mWorldConfig.getTensorParallelism()));
+    std::size_t const bufferSize = mWorldConfig.getTensorParallelism()
+        * std::min(static_cast<std::size_t>(maxBatchSize) * maxBeamWidth * maxSequenceLength
+                * mModelConfig.getHiddenSize() * sizeof(float),
+            ::tensorrt_llm::utils::customAllReduceUtils::getMaxRequiredWorkspaceSize(
+                mWorldConfig.getTensorParallelism()));
     mIpcMemoryHandles.emplace_back(std::make_shared<IpcMemory>(mWorldConfig, bufferSize));
     mIpcMemoryHandles.emplace_back(std::make_shared<IpcMemory>(mWorldConfig, bufferSize));
-    mIpcMemoryHandles.emplace_back(std::make_shared<IpcMemory>(mWorldConfig, IpcMemory::FLAGS_SIZE * sizeof(int32_t)));
-    mIpcMemoryHandles.emplace_back(std::make_shared<IpcMemory>(mWorldConfig, IpcMemory::FLAGS_SIZE * sizeof(int32_t)));
+    mIpcMemoryHandles.emplace_back(
+        std::make_shared<IpcMemory>(mWorldConfig, IpcMemory::FLAGS_SIZE * mWorldConfig.getTensorParallelism()));
+    mIpcMemoryHandles.emplace_back(
+        std::make_shared<IpcMemory>(mWorldConfig, IpcMemory::FLAGS_SIZE * mWorldConfig.getTensorParallelism()));
 
     mCommPtrs = BufferManager::cpu(
         ITensor::makeShape({static_cast<SizeType>(mIpcMemoryHandles.size()) * mWorldConfig.getTensorParallelism()}),
@@ -328,20 +340,18 @@ void GptSession::setup(Config const& sessionConfig)
         createCustomAllReduceWorkspace(mMicroBatchConfig.genBatchSize, maxBeamWidth, maxSequenceLength);
     }
 
-    if (mModelConfig.usePagedKvCache())
-    {
-        createKvCacheManager(maxBatchSize, maxBeamWidth, maxAttentionWindow, sinkTokenLength, maxSequenceLength,
-            sessionConfig.kvCacheConfig);
-    }
-
-    auto* kvCacheManager = mModelConfig.usePagedKvCache() ? mKvCacheManager.get() : nullptr;
-
     for (auto& buffers : mBuffers)
     {
         // we don't know maxInputLength yet and ignore it for pre-allocation
-        buffers->generationConfig = RuntimeBuffers::GenerationConfig{
+        buffers->generationConfig = GenerationConfig{
             mMicroBatchConfig.genBatchSize, maxBeamWidth, 0, maxAttentionWindow, sinkTokenLength, maxSequenceLength};
-        buffers->reshape(kvCacheManager, mModelConfig, mWorldConfig);
+        buffers->reshape(mModelConfig, mWorldConfig);
+    }
+
+    if (mModelConfig.isTransformerBased() && mModelConfig.usePagedKvCache())
+    {
+        createKvCacheManager(maxBatchSize, maxBeamWidth, maxAttentionWindow, sinkTokenLength, maxSequenceLength,
+            sessionConfig.kvCacheConfig);
     }
 
     TLLM_LOG_TRACE("%s stop", __PRETTY_FUNCTION__);
@@ -379,7 +389,6 @@ ITensor::SharedPtr GptSession::initDecoder(ITensor& outputIds, GenerationInput c
 
         auto const inputLengths = inputs.lengths;
         auto const batchSize = static_cast<SizeType>(inputLengths->getSize());
-
         auto const inputLengthsHost = manager.copyFrom(*inputLengths, MemoryType::kCPU);
         auto const* inputLengthsData = bufferCast<SizeType>(*inputLengthsHost);
         SizeType const maxInputLength = *std::max_element(inputLengthsData, inputLengthsData + inputLengths->getSize());
@@ -409,7 +418,7 @@ namespace
 std::tuple<std::vector<ITensor::SharedPtr>, std::vector<ITensor::SharedPtr>, std::vector<SizeType>> splitInputIds(
     GenerationInput const& inputs, SizeType microBatchSize, BufferManager& manager)
 {
-    auto const numRequests = inputs.lengths->getShape().d[0];
+    auto const numRequests = static_cast<SizeType>(inputs.lengths->getShape().d[0]);
 
     std::vector<ITensor::SharedPtr> inputIds;
     std::vector<ITensor::SharedPtr> inputLengths;
@@ -521,9 +530,10 @@ std::vector<GenerationInput> splitInputs(GenerationInput const& inputs, SizeType
     return inputBatches;
 }
 
-std::vector<GenerationOutput> splitOutputs(GenerationOutput& outputs, SizeType microBatchSize)
+std::vector<GenerationOutput> splitOutputs(
+    GenerationOutput& outputs, SizeType microBatchSize, WorldConfig const& mWorldConfig)
 {
-    auto const numRequests = outputs.ids->getShape().d[0];
+    auto const numRequests = static_cast<SizeType>(outputs.ids->getShape().d[0]);
 
     std::vector<GenerationOutput> outputBatches;
     for (auto batchOffset = 0; batchOffset < numRequests; batchOffset += microBatchSize)
@@ -541,11 +551,11 @@ std::vector<GenerationOutput> splitOutputs(GenerationOutput& outputs, SizeType m
         {
             outputBatches.back().logProbs = ITensor::slice(outputs.logProbs, batchOffset, batchSize);
         }
-        if (outputs.contextLogits)
+        if (outputs.contextLogits && mWorldConfig.isLastPipelineParallelRank())
         {
             outputBatches.back().contextLogits = ITensor::slice(outputs.contextLogits, batchOffset, batchSize);
         }
-        if (outputs.generationLogits)
+        if (outputs.generationLogits && mWorldConfig.isLastPipelineParallelRank())
         {
             outputBatches.back().generationLogits = ITensor::slice(outputs.generationLogits, batchOffset, batchSize);
         }
@@ -580,6 +590,7 @@ void GptSession::generate(GenerationOutput& outputs, GenerationInput const& inpu
     auto& manager = mRuntime->getBufferManager();
 
     auto const batchSize = static_cast<SizeType>(inputLengths->getSize());
+
     auto const beamWidth = samplingConfig.beamWidth;
     outputs.ids->reshape(ITensor::makeShape({batchSize, beamWidth, mDecoderMaxSequenceLength}));
     outputs.lengths->reshape(ITensor::makeShape({batchSize, beamWidth}));
@@ -606,7 +617,6 @@ void GptSession::generate(GenerationOutput& outputs, GenerationInput const& inpu
 
             if (mModelConfig.computeContextLogits())
             {
-                // outputs.contextLogits = mBuffers.back()->cacheContextLogits;
                 if (!outputs.contextLogits)
                 {
                     outputs.contextLogits = manager.emptyTensor(MemoryType::kGPU, getLogitDataType());
@@ -660,7 +670,7 @@ void GptSession::generate(GenerationOutput& outputs, GenerationInput const& inpu
     else
     {
         auto const microBatchesInputs = splitInputs(inputs, mMicroBatchConfig.genBatchSize, manager);
-        auto microBatchesOutputs = splitOutputs(outputs, mMicroBatchConfig.genBatchSize);
+        auto microBatchesOutputs = splitOutputs(outputs, mMicroBatchConfig.genBatchSize, mWorldConfig);
         generateBatched(microBatchesOutputs, microBatchesInputs, samplingConfig, onTokenGenerated, generationProfiler);
     }
 
@@ -705,7 +715,7 @@ void GptSession::generateBatched(std::vector<GenerationOutput>& microBatchesOutp
         auto& buffers = *mBuffers.at(microBatchId);
         buffers.initFromInput(*microBatchInputs.ids, microBatchInputs.lengths, microBatchInputs.packed, beamWidth,
             mDecoderMaxAttentionWindow, mDecoderSinkTokenLength, mDecoderMaxSequenceLength, manager);
-        buffers.reshape(kvCacheManager, mModelConfig, mWorldConfig);
+        buffers.reshape(mModelConfig, mWorldConfig);
         buffers.reset(manager);
     }
 
@@ -836,15 +846,15 @@ void GptSession::generateBatched(std::vector<GenerationOutput>& microBatchesOutp
             }
         }
         // copy generation logits fragments into a single generationLogits tensor
-        if (mModelConfig.computeGenerationLogits())
+        if (mWorldConfig.isLastPipelineParallelRank() && mModelConfig.computeGenerationLogits())
         {
             auto& buffers = *mBuffers.at(microBatchId);
             auto& microBatchOutputs = microBatchesOutputs.at(microBatchId);
 
             auto const beamWidth = generationConfig.beamWidth;
-            TensorPtr cachePointerDevice
-                = ITensor::slice(buffers.cacheGenerationFragmentPointerDevice, microBatchId, 1);
-            TensorPtr cachePointerHost = ITensor::slice(buffers.cacheGenerationFragmentPointerHost, microBatchId, 1);
+            TensorPtr cachePointerDevice = ITensor::slice(buffers.cacheGenerationFragmentPointerDevice, 0, 1);
+            TensorPtr cachePointerHost = ITensor::slice(buffers.cacheGenerationFragmentPointerHost, 0, 1);
+
             tensorrt_llm::runtime::kernels::mergeLogitsFragments(manager, *microBatchOutputs.generationLogits,
                 *buffers.generationLogitsFragments, *cachePointerDevice, *cachePointerHost, 0, microBatchSize,
                 beamWidth, manager.getStream(), 0);
@@ -899,7 +909,7 @@ void GptSession::executeContextStep(std::vector<GenerationInput> const& generati
         sync_check_cuda_error();
 
         // Save the last token logits of context into generation logits
-        if (mModelConfig.computeGenerationLogits())
+        if (mWorldConfig.isLastPipelineParallelRank() && mModelConfig.computeGenerationLogits())
         {
             auto& buffers = *mBuffers.at(generationBatchId);
             buffers.generationLogitsFragments->push_back(generationBuffers.logits);
@@ -911,7 +921,7 @@ void GptSession::executeContextStep(std::vector<GenerationInput> const& generati
 
         decoderStepAsync(decoderStep, generationBatchId);
 
-        if (mModelConfig.computeGenerationLogits())
+        if (mWorldConfig.isLastPipelineParallelRank() && mModelConfig.computeGenerationLogits())
         {
             TensorPtr newLogitBuffer = ITensor::slice(generationBuffers.allGenerationLogits, 1, 1);
             newLogitBuffer->squeeze(0);
@@ -954,7 +964,20 @@ SizeType GptSession::executeGenerationStep(SizeType step, std::vector<Generation
 
         if (useCudaGraphs())
         {
-            mCudaGraphInstances.at(graphId).prepareNextGraph(*mRuntime, contextId);
+            // SSMBased only create cuda graph instance once.
+            if (mModelConfig.isSsmBased())
+            {
+                // step > 3 is WAR for TRT 9.x.
+                // Which is fixed in TRT 10.x.
+                if (step > 3 && !mCudaGraphInstances.at(graphId).hasInstance())
+                {
+                    mCudaGraphInstances.at(graphId).prepareNextGraph(*mRuntime, contextId);
+                }
+            }
+            else
+            {
+                mCudaGraphInstances.at(graphId).prepareNextGraph(*mRuntime, contextId);
+            }
         }
 
         // check decoder result of previous iteration
@@ -967,10 +990,10 @@ SizeType GptSession::executeGenerationStep(SizeType step, std::vector<Generation
             continue;
         }
 
-        if (useCudaGraphs())
+        if (useCudaGraphs() && mCudaGraphInstances.size() > (size_t) graphId
+            && mCudaGraphInstances.at(graphId).hasInstance())
         {
             auto& cudaGraphInstance = mCudaGraphInstances.at(graphId);
-            TLLM_CHECK(cudaGraphInstance.hasInstance());
             cudaGraphInstance.launch(mRuntime->getStream());
         }
         else
@@ -980,7 +1003,7 @@ SizeType GptSession::executeGenerationStep(SizeType step, std::vector<Generation
         }
         sync_check_cuda_error();
 
-        if (mModelConfig.computeGenerationLogits())
+        if (mWorldConfig.isLastPipelineParallelRank() && mModelConfig.computeGenerationLogits())
         {
             auto& buffers = *mBuffers.at(generationBatchId);
             buffers.generationLogitsFragments->push_back(buffers.logits);
@@ -993,7 +1016,8 @@ SizeType GptSession::executeGenerationStep(SizeType step, std::vector<Generation
 
         decoderStepAsync(decoderStep, generationBatchId);
 
-        if (mModelConfig.computeGenerationLogits() && buffers.allGenerationLogits->getShape().d[0] > step + 1)
+        if (mWorldConfig.isLastPipelineParallelRank() && mModelConfig.computeGenerationLogits()
+            && buffers.allGenerationLogits->getShape().d[0] > step + 1)
         {
             TensorPtr newLogitBuffer = ITensor::slice(buffers.allGenerationLogits, step + 1, 1);
             newLogitBuffer->squeeze(0);

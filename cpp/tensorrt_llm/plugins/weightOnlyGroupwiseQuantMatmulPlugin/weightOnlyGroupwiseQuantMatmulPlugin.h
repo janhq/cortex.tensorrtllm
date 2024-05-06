@@ -19,7 +19,7 @@
 #include "tensorrt_llm/common/quantization.h"
 #include "tensorrt_llm/kernels/cutlass_kernels/fpA_intB_gemm/fpA_intB_gemm.h"
 #include "tensorrt_llm/kernels/preQuantScaleKernel.h"
-#include "tensorrt_llm/kernels/weightOnlyBatchedGemv/kernelLauncher.h"
+#include "tensorrt_llm/kernels/weightOnlyBatchedGemv//kernelLauncher.h"
 #include "tensorrt_llm/plugins/common/gemmPluginProfiler.h"
 #include "tensorrt_llm/plugins/common/plugin.h"
 #include "tensorrt_llm/plugins/weightOnlyQuantMatmulPlugin/weightOnlyQuantMatmulPlugin.h"
@@ -126,6 +126,8 @@ private:
     size_t m_workspaceMaxSize;
     nvinfer1::DataType mType;
     bool mCudaKernelEnabled;
+    tensorrt_llm::kernels::weight_only::KernelType mCudaKernelType;
+    int mArch;
 
     // When M is smaller than this value, we trigger a fast path
     // I.e. a tailored kernel instead of cutlass.

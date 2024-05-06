@@ -43,22 +43,27 @@ function(add_gtest test_name test_src)
   target_compile_definitions(${test_name}
                              PUBLIC TOP_LEVEL_DIR="${TOP_LEVEL_DIR}")
   gtest_discover_tests(
-    ${test_name} PROPERTIES ENVIRONMENT "CUDA_MODULE_LOADING=LAZY"
-                            DISCOVERY_TIMEOUT 30) # Longer timeout needed
-                                                  # because discovery can be
-                                                  # slow on Windows
+    ${test_name}
+    PROPERTIES ENVIRONMENT "CUDA_MODULE_LOADING=LAZY" DISCOVERY_MODE
+               PRE_TEST # WAR for DLL discovery on windows.
+               DISCOVERY_TIMEOUT 30) # Longer timeout needed because discovery
+                                     # can be slow on Windows
   add_dependencies(google-tests ${test_name})
 endfunction()
 
 add_gtest(loraManagerTest runtime/loraManagerTest.cpp)
 add_gtest(loraUtilsTest runtime/loraUtilsTest.cpp)
-add_gtest(attentionKernelTest runtime/transposeKVKernelTest.cpp)
+add_gtest(loraCacheTest runtime/loraCacheTest.cpp)
+add_gtest(workerPoolTest runtime/workerPoolTest.cpp)
+add_gtest(transposeKVKernelTest runtime/transposeKVKernelTest.cpp)
 add_gtest(gptDecoderTest runtime/gptDecoderTest.cpp)
 add_gtest(gptDecoderBatchTest runtime/gptDecoderBatchTest.cpp)
 add_gtest(gptSessionTest runtime/gptSessionTest.cpp)
 add_gtest(allocatorTest common/allocatorTest.cpp)
 add_gtest(memoryUtilsTest common/memoryUtilsTest.cu)
-add_gtest(mpiUtilsTest common/mpiUtilsTest.cpp)
+if(ENABLE_MULTI_DEVICE EQUAL 1)
+  add_gtest(mpiUtilsTest common/mpiUtilsTest.cpp)
+endif()
 add_gtest(quantizationTest common/quantizationTest.cpp)
 add_gtest(stringUtilsTest common/stringUtilsTest.cpp)
 add_gtest(tllmExceptionTest common/tllmExceptionTest.cpp)
@@ -87,6 +92,7 @@ set(SAMPLING_KERNEL_TEST_SRC
     kernels/sampling/samplingUtilsTest.cu)
 add_gtest(samplingKernelsTest "${SAMPLING_KERNEL_TEST_SRC}")
 add_gtest(weightOnlyKernelTest kernels/weightOnly/weightOnlyKernelTest.cpp)
+add_gtest(smoothQuantKernelTest kernels/smoothQuant/smoothQuantKernelTest.cpp)
 add_gtest(decodingKernelsTest kernels/decodingKernelTest.cpp)
 add_gtest(banRepeatNGramsKernelsTest kernels/banRepeatNGramsKernelsTest.cpp)
 add_gtest(stopCriteriaKernelsTest kernels/stopCriteriaKernelsTest.cpp)
@@ -96,6 +102,7 @@ set(SAMPLING_LAYER_TEST_SRC
     layers/topKSamplingLayerTest.cpp layers/topPSamplingLayerTest.cpp)
 add_gtest(samplingLayerTest "${SAMPLING_LAYER_TEST_SRC}")
 add_gtest(dynamicDecodeLayerTest layers/dynamicDecodeLayerTest.cpp)
+add_gtest(medusaDecodeLayerTest layers/medusaDecodeLayerTest.cpp)
 
 if(BUILD_BATCH_MANAGER)
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/batch_manager)
@@ -104,5 +111,7 @@ if(BUILD_BATCH_MANAGER)
 endif()
 
 if(BUILD_EXECUTOR)
-  add_subdirectory(executor)
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/executor)
+    add_subdirectory(executor)
+  endif()
 endif()

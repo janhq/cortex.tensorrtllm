@@ -39,6 +39,12 @@
 
 ### Convert checkpoint
 
+Please install required packages first:
+
+```bash
+pip install -r requirements.txt
+```
+
 Users can use `convert_checkpoint.py` to convert the different source checkpoint to unified TensorRT-LLM checkpoint format. Users could set `--dtype` to determine the inference data type, and set the quantization options like `--enable_fp8`, `--fp8_kv_cache` `--use_smooth_quant`, `--calibrate_kv_cache` (for INT8 kv cache) and `--use-weight-only-with-precision` (weight only). Users could also control the source checkpoint type by `--ckpt-type`. Currently, supported checkpoint types are `jax`, `torch` and `keras`.
 
 ```bash
@@ -65,6 +71,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
              --max_batch_size 8 \
              --max_input_len 3000 \
              --max_output_len 100 \
+             --lookup_plugin bfloat16 \
              --output_dir ${ENGINE_PATH}
 ```
 
@@ -141,10 +148,11 @@ In this section, we demonstrate the scripts to convert checkpoint, building engi
 #### Run inference under bfloat16 for HF checkpoint
 
 ```bash
-CKPT_PATH=/tmp/models/hf/gemma/gemma-2b/
+git clone git@hf.co:google/gemma-2b
+CKPT_PATH=gemma-2b/
 UNIFIED_CKPT_PATH=/tmp/ckpt/hf/gemma/2b/1-gpu/
 ENGINE_PATH=/tmp/engines/gemma/2B/bf16/1-gpu/
-VOCAB_FILE_PATH=/tmp/models/hf/gemma/gemma-2b/
+VOCAB_FILE_PATH=gemma-2b/
 
 python3 ./examples/gemma/convert_checkpoint.py \
     --ckpt-type hf \
@@ -184,10 +192,15 @@ WARNING: This way of running FP8 will introduce noticeable accuracy drop. To avo
 In this example, we demonstrate how to run FP8 inference on Gemma. Note that `convert_checkpoint.py` only uses identity activation scales, so the accuracy might be little worse than higher precision in some cases, but it is still very good because we don't do any calibration. This also shows the stability of FP8 compared to INT8.
 
 ```bash
-CKPT_PATH=/tmp/models/gemma_keras/keras/gemma_2b_en/
+git clone git@hf.co:google/gemma-2b-it-keras
+GIT_LFS_SKIP_SMUDGE=1 git clone git@hf.co:google/gemma-2b-it-flax # clone tokenizer model
+cd gemma-2b-it-flax
+git lfs pull -I tokenizer.model
+
+CKPT_PATH=gemma-2b-it-keras
 UNIFIED_CKPT_PATH=/tmp/checkpoints/tmp_2b_en_tensorrt_llm/fp8/tp1/
 ENGINE_PATH=/tmp/gemma/2B/fp8/1-gpu/
-VOCAB_FILE_PATH=/tmp/models/gemma_nv/checkpoints/tmp_vocab.model
+VOCAB_FILE_PATH=gemma-2b-it-flax/tokenizer.model
 
 python3 ./convert_checkpoint.py \
     --ckpt-type keras \
@@ -233,10 +246,11 @@ Average accuracy: 0.356
 #### Run 2B inference under SmoothQuant for jax checkpoint
 
 ```bash
-CKPT_PATH=/tmp/models/gemma_nv/checkpoints/tmp_2b_it
+git clone git@hf.co:google/gemma-2b-it-flax
+CKPT_PATH=gemma-2b-it-flax/2b-it/
 UNIFIED_CKPT_PATH=/tmp/checkpoints/tmp_2b_it_tensorrt_llm/sq/tp1
 ENGINE_PATH=/tmp/gemma/2B/int8_sq/1-gpu/
-VOCAB_FILE_PATH=/tmp/models/gemma_nv/checkpoints/tmp_vocab.model
+VOCAB_FILE_PATH=gemma-2b-it-flax/tokenizer.model
 
 python3 ./convert_checkpoint.py \
     --ckpt-type jax \
@@ -253,6 +267,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
              --max_input_len 3000 \
              --max_output_len 100 \
              --enable_xqa enable \
+             --lookup_plugin float16 \
              --output_dir ${ENGINE_PATH}
 
 python3 ../summarize.py --test_trt_llm \
@@ -278,10 +293,11 @@ Available precisions: `int8` and `int4`
 * `int8`
 
 ```bash
-CKPT_PATH=/tmp/models/gemma_nv/checkpoints/tmp_2b_it
+git clone git@hf.co:google/gemma-2b-it-flax
+CKPT_PATH=gemma-2b-it-flax/2b-it/
 UNIFIED_CKPT_PATH=/tmp/checkpoints/tmp_2b_it_tensorrt_llm/w8_a16/tp1/
 ENGINE_PATH=/tmp/gemma/2B/w8_a16/1-gpu/
-VOCAB_FILE_PATH=/tmp/models/gemma_nv/checkpoints/tmp_vocab.model
+VOCAB_FILE_PATH=gemma-2b-it-flax/tokenizer.model
 
 python3 ./convert_checkpoint.py \
     --ckpt-type jax \
@@ -297,6 +313,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
                  --max_input_len 3000 \
                  --max_output_len 100 \
                  --enable_xqa enable \
+                 --lookup_plugin bfloat16 \
                  --output_dir ${ENGINE_PATH}
 
 python3 ../summarize.py --test_trt_llm \
@@ -318,10 +335,11 @@ python3 ../summarize.py --test_trt_llm \
 * `int4`
 
 ```bash
-CKPT_PATH=/tmp/models/gemma_nv/checkpoints/tmp_2b_it
+git clone git@hf.co:google/gemma-2b-it-flax
+CKPT_PATH=gemma-2b-it-flax/2b-it/
 UNIFIED_CKPT_PATH=/tmp/checkpoints/tmp_2b_it_tensorrt_llm/w4_a16/tp1/
 ENGINE_PATH=/tmp/gemma/2B/w4_a16/1-gpu/
-VOCAB_FILE_PATH=/tmp/models/gemma_nv/checkpoints/tmp_vocab.model
+VOCAB_FILE_PATH=gemma-2b-it-flax/tokenizer.model
 
 python3 ./convert_checkpoint.py \
     --ckpt-type jax \
@@ -337,6 +355,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
                  --max_input_len 3000 \
                  --max_output_len 100 \
                  --enable_xqa enable \
+                 --lookup_plugin bfloat16 \
                  --output_dir ${ENGINE_PATH}
 
 python3 ../summarize.py --test_trt_llm \
@@ -358,10 +377,11 @@ python3 ../summarize.py --test_trt_llm \
 #### Run inference under INT8 KV caches for jax checkpoint
 
 ```bash
-CKPT_PATH=/tmp/models/gemma_nv/checkpoints/tmp_2b_it
+git clone git@hf.co:google/gemma-2b-it-flax
+CKPT_PATH=gemma-2b-it-flax/2b-it/
 UNIFIED_CKPT_PATH=/tmp/checkpoints/tmp_2b_it_tensorrt_llm/int8kv/tp1
 ENGINE_PATH=/tmp/gemma/2B/int8kv/1-gpu/
-VOCAB_FILE_PATH=/tmp/models/gemma_nv/checkpoints/tmp_vocab.model
+VOCAB_FILE_PATH=gemma-2b-it-flax/tokenizer.model
 
 python3 ./convert_checkpoint.py \
              --ckpt-type jax \
@@ -374,12 +394,13 @@ python3 ./convert_checkpoint.py \
 
 trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
              --gemm_plugin bfloat16 \
-             --gpt_attention_plugin bfloat16  \
+             --gpt_attention_plugin bfloat16 \
              --max_batch_size 32 \
              --max_input_len 3000 \
              --max_output_len 100 \
              --enable_xqa enable \
              --strongly_type \
+             --lookup_plugin bfloat16 \
              --output_dir ${ENGINE_PATH}
 
 python3 ../summarize.py --test_trt_llm \
@@ -405,12 +426,14 @@ python3 ../summarize.py --test_trt_llm \
 Since torch model does not have model config, we need to add it manually in `CKPT_PATH` with file name `config.json`.
 
 ```bash
-CKPT_PATH=/tmp/models/pytorch/ckpt/
+git clone git@hf.co:google/gemma-7b-pytorch
+
+CKPT_PATH=gemma-7b-pytorch/
 UNIFIED_CKPT_PATH=/tmp/checkpoints/tmp_7b_it_tensorrt_llm/bf16/tp1/
 ENGINE_PATH=/tmp/gemma/7B/bf16/1-gpu/
-VOCAB_FILE_PATH=/tmp/models/gemma_nv/checkpoints/tmp_vocab.model
+VOCAB_FILE_PATH=gemma-7b-pytorch/tokenizer.model
 
-python3 ./convert_checkpoint.py \
+python3 ./examples/gemma/convert_checkpoint.py \
     --ckpt-type torch \
     --model-dir ${CKPT_PATH} \
     --dtype bfloat16 \
@@ -423,6 +446,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
              --max_batch_size 8 \
              --max_input_len 3000 \
              --max_output_len 100 \
+             --lookup_plugin bfloat16 \
              --output_dir ${ENGINE_PATH}
 
 python3 ../summarize.py --test_trt_llm \
@@ -467,6 +491,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
              --max_batch_size 8 \
              --max_input_len 3000 \
              --max_output_len 100 \
+             --lookup_plugin bfloat16 \
              --output_dir ${ENGINE_PATH}
 
 python3 ../summarize.py --test_trt_llm \
@@ -488,10 +513,11 @@ python3 ../summarize.py --test_trt_llm \
 #### Run 7B inference under SmoothQuant for jax checkpoint
 
 ```bash
-CKPT_PATH=/tmp/models/gemma_nv/checkpoints/tmp_7b_it
+git clone git@hf.co:google/gemma-7b-it-flax
+CKPT_PATH=gemma-7b-it-flax/7b-it/
 UNIFIED_CKPT_PATH=/tmp/checkpoints/tmp_7b_it_tensorrt_llm/sq/tp1
 ENGINE_PATH=/tmp/gemma/7B/int8_sq/1-gpu/
-VOCAB_FILE_PATH=/tmp/models/gemma_nv/checkpoints/tmp_vocab.model
+VOCAB_FILE_PATH=gemma-7b-it-flax/tokenizer.model
 
 python3 ./convert_checkpoint.py \
     --ckpt-type jax \
@@ -508,6 +534,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
              --max_input_len 3000 \
              --max_output_len 100 \
              --enable_xqa enable \
+             --lookup_plugin float16 \
              --output_dir ${ENGINE_PATH}
 
 python3 ../summarize.py --test_trt_llm \
@@ -534,10 +561,15 @@ Available precisions: `int8` and `int4`
 * `int8`
 
 ```bash
-CKPT_PATH=/tmp/models/gemma_keras/keras/gemma_7b_en/
+git clone git@hf.co:google/gemma-7b-it-keras
+GIT_LFS_SKIP_SMUDGE=1 git clone git@hf.co:google/gemma-7b-it-flax # clone tokenizer model
+cd gemma-7b-it-flax
+git lfs pull -I tokenizer.model
+
+CKPT_PATH=gemma-7b-it-keras
 UNIFIED_CKPT_PATH=/tmp/checkpoints/tmp_7b_it_tensorrt_llm/w8_a16/tp1/
 ENGINE_PATH=/tmp/gemma/7B/w8_a16/1-gpu/
-VOCAB_FILE_PATH=/tmp/models/gemma_nv/checkpoints/tmp_vocab.model
+VOCAB_FILE_PATH=gemma-7b-it-flax/tokenizer.model
 
 python3 ./convert_checkpoint.py \
     --ckpt-type keras \
@@ -553,6 +585,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
                  --max_input_len 3000 \
                  --max_output_len 100 \
                  --enable_xqa enable \
+                 --lookup_plugin bfloat16 \
                  --output_dir ${ENGINE_PATH}
 
 python3 ../summarize.py --test_trt_llm \
@@ -593,6 +626,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
                  --max_input_len 3000 \
                  --max_output_len 100 \
                  --enable_xqa enable \
+                 --lookup_plugin bfloat16 \
                  --output_dir ${ENGINE_PATH}
 
 python3 ../summarize.py --test_trt_llm \
@@ -636,6 +670,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
              --max_output_len 100 \
              --enable_xqa enable \
              --strongly_type \
+             --lookup_plugin bfloat16 \
              --output_dir ${ENGINE_PATH}
 
 python3 ../summarize.py --test_trt_llm \
@@ -681,6 +716,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
              --max_batch_size 8 \
              --max_input_len 3000 \
              --max_output_len 100 \
+             --lookup_plugin float16 \
              --output_dir ${ENGINE_PATH}
 ```
 
@@ -694,6 +730,7 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
              --max_input_len 3000 \
              --max_output_len 100 \
              --enable_xqa enable \
+             --lookup_plugin float16 \
              --output_dir ${ENGINE_PATH}
 ```
 

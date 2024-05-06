@@ -12,16 +12,16 @@ from mpi4py.futures import MPIPoolExecutor
 import tensorrt_llm
 from tensorrt_llm import Mapping
 from tensorrt_llm._utils import mpi_barrier
-from tensorrt_llm.auto_parallel.config import (AutoParallelConfig,
-                                               infer_cluster_key)
+from tensorrt_llm.auto_parallel import AutoParallelConfig, infer_cluster_config
 from tensorrt_llm.builder import BuildConfig, build
-from tensorrt_llm.executor import GenerationExecutor
-from tensorrt_llm.hlapi.utils import print_traceback_on_error
+from tensorrt_llm.executor import GenerationExecutorWorker
+from tensorrt_llm.hlapi.utils import SamplingConfig, print_traceback_on_error
 from tensorrt_llm.models import LLaMAForCausalLM
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils import llm_data
 from utils.llm_data import llm_models_root
+from utils.util import force_ampere
 
 # MPIPoolExecutor only serializes function name and let workers find it in Python path.
 # Since all tests are not installed in Python path, workers will fail.
@@ -75,7 +75,6 @@ def build_and_run_tp2(rank, model_name, engine_dir, use_auto_parallel):
         mapping.rank = rank
         auto_parallel_config = AutoParallelConfig(
             world_size=TP_SIZE,
-            cluster_key=infer_cluster_key(),
             sharded_io_allowlist=[
                 "past_key_value_\\d+",
                 "present_key_value_\\d*",
@@ -83,6 +82,7 @@ def build_and_run_tp2(rank, model_name, engine_dir, use_auto_parallel):
             same_buffer_io={
                 "past_key_value_(\\d+)": "present_key_value_\\1",
             },
+            **infer_cluster_config(),
         )
 
     # build and run by one llama object
@@ -99,18 +99,23 @@ def build_and_run_tp2(rank, model_name, engine_dir, use_auto_parallel):
     engine.save(engine_dir)
     mpi_barrier()
     tensorrt_llm.logger.warning(f"Build finished for rank {rank}")
-    executor = GenerationExecutor(engine_dir, tokenizer_dir)
-    mpi_barrier()
-    for idx, output in enumerate(executor.generate(input_text, 10)):
-        tensorrt_llm.logger.info(f"{rank} input: {input_text[idx]}")
-        tensorrt_llm.logger.info(f"{rank} output: {output.text}")
-        assert output.text.endswith(
-            expected_output[idx]
-        ), f"Expecting {expected_output[idx]}, got {output.text}"
+    with GenerationExecutorWorker(engine_dir, tokenizer_dir) as executor:
+        executor.block_subordinates()
+
+        for idx, output in enumerate(
+                executor.generate(
+                    input_text,
+                    sampling_config=SamplingConfig(max_new_tokens=10))):
+            tensorrt_llm.logger.info(f"{rank} input: {input_text[idx]}")
+            tensorrt_llm.logger.info(f"{rank} output: {output.text}")
+            assert output.text.endswith(
+                expected_output[idx]
+            ), f"Expecting {expected_output[idx]}, got {output.text}"
     mpi_barrier()
     return True
 
 
+@force_ampere
 @pytest.mark.parametrize("use_auto_parallel", [True, False],
                          ids=["enable_auto_parallel", "disable_auto_parallel"])
 @pytest.mark.parametrize("model_name",

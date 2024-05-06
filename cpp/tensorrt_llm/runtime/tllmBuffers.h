@@ -90,7 +90,7 @@ protected:
     void deallocateImpl( // NOLINT(readability-convert-member-functions-to-static)
         PointerType ptr, [[maybe_unused]] SizeType n)
     {
-        TLLM_CUDA_CHECK(::cudaFree(ptr));
+        TLLM_CUDA_CHECK_FREE_RESOURCE(::cudaFree(ptr));
     }
 };
 
@@ -120,7 +120,7 @@ protected:
 
     void deallocateImpl(PointerType ptr, [[maybe_unused]] SizeType n)
     {
-        TLLM_CUDA_CHECK(::cudaFreeAsync(ptr, mCudaStream->get()));
+        TLLM_CUDA_CHECK_FREE_RESOURCE(::cudaFreeAsync(ptr, mCudaStream->get()));
     }
 
 private:
@@ -145,7 +145,7 @@ protected:
     void deallocateImpl( // NOLINT(readability-convert-member-functions-to-static)
         PointerType ptr, [[maybe_unused]] SizeType n)
     {
-        TLLM_CUDA_CHECK(::cudaFree(ptr));
+        TLLM_CUDA_CHECK_FREE_RESOURCE(::cudaFree(ptr));
     }
 };
 
@@ -166,7 +166,7 @@ protected:
     void deallocateImpl( // NOLINT(readability-convert-member-functions-to-static)
         PointerType ptr, [[maybe_unused]] SizeType n)
     {
-        TLLM_CUDA_CHECK(::cudaFreeHost(ptr));
+        TLLM_CUDA_CHECK_FREE_RESOURCE(::cudaFreeHost(ptr));
     }
 };
 
@@ -668,6 +668,7 @@ private:
 };
 
 using DeviceBuffer = GenericBuffer<CudaAllocatorAsync>;
+using StaticDeviceBuffer = GenericBuffer<CudaAllocator>;
 using HostBuffer = GenericBuffer<HostAllocator>;
 using PinnedBuffer = GenericBuffer<PinnedAllocator>;
 using PinnedPoolBuffer = GenericBuffer<PinnedPoolAllocator>;
@@ -757,6 +758,7 @@ private:
 };
 
 using DeviceTensor = GenericTensor<CudaAllocatorAsync>;
+using StaticDeviceTensor = GenericTensor<CudaAllocator>;
 using HostTensor = GenericTensor<HostAllocator>;
 using PinnedTensor = GenericTensor<PinnedAllocator>;
 using PinnedPoolTensor = GenericTensor<PinnedPoolAllocator>;

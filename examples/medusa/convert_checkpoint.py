@@ -23,9 +23,9 @@ import tensorrt_llm
 from tensorrt_llm._utils import str_dtype_to_torch
 from tensorrt_llm.logger import logger
 from tensorrt_llm.mapping import Mapping
-from tensorrt_llm.models.llama.weight import (load_from_gptq_llama,
-                                              load_from_hf_checkpoint)
+from tensorrt_llm.models.llama.weight import load_from_hf_checkpoint
 from tensorrt_llm.models.modeling_utils import PretrainedConfig
+from tensorrt_llm.quantization import QuantAlgo
 
 try:
     from transformers import MixtralForCausalLM
@@ -164,9 +164,6 @@ def parse_arguments():
         help=
         'Try to reduce the engine size by sharing the embedding lookup table between two layers.'
         'Note: the flag might not take effect when the criteria are not met.')
-    parser.add_argument('--use_prompt_tuning',
-                        action="store_true",
-                        default=False)
     parser.add_argument('--output_dir',
                         type=str,
                         default='tllm_checkpoint',
@@ -700,71 +697,6 @@ def get_tllm_linear_sq_weight(vals,
     return results
 
 
-class QkvWeightHelper:
-    """ A helper utility for loading QKV weights from sharded files. """
-
-    def __init__(self, config: PretrainedConfig):
-        self.hidden_size = config.hidden_size
-        self.num_heads = config.num_attention_heads
-        self.num_kv_heads = config.num_key_value_heads
-        self.tp_size = config.mapping.tp_size
-        self.tp_rank = config.mapping.tp_rank
-        self.is_mha = self.num_heads == self.num_kv_heads
-        self._qkv_weights = {}
-
-    @staticmethod
-    def is_qkv_weight(name):
-        for k in ['q_proj', 'k_proj', 'v_proj']:
-            if 'self_attn' in name and k in name:
-                return True
-        return False
-
-    def add_weight(self, i: int, name: str, weight: torch.Tensor):
-        if 'q_proj' in name:
-            tag = 'q'
-        elif 'k_proj' in name:
-            tag = 'k'
-        elif 'v_proj' in name:
-            tag = 'v'
-        else:
-            raise ValueError(f'Got an unexpected parameter of name {name}')
-        if i not in self._qkv_weights:
-            self._qkv_weights[i] = {}
-        self._qkv_weights[i][tag] = weight
-
-    def is_qkv_prepared(self, layer_idx):
-        if layer_idx not in self._qkv_weights:
-            return False
-        weights = self._qkv_weights[layer_idx]
-        return 'q' in weights and 'k' in weights and 'v' in weights
-
-    def split_qkv_weights(self, layer_idx):
-        if not self.is_qkv_prepared(layer_idx):
-            return None
-        weights = self._qkv_weights.pop(layer_idx)  # to prevent memory leak.
-        q, k, v = (torch.tensor(weights[t]) for t in ['q', 'k', 'v'])
-
-        if not self.is_mha:
-            head_size = self.hidden_size // self.num_heads
-            if self.num_kv_heads < self.tp_size:
-                # duplicate the KV heads up to tensor_parallel
-                k = dup_kv_weight(k, self.num_kv_heads, self.tp_size)
-                v = dup_kv_weight(v, self.num_kv_heads, self.tp_size)
-            assert k.shape[0] % (self.tp_size * head_size) == 0
-            assert v.shape[0] % (self.tp_size * head_size) == 0
-            wq = split(q, self.tp_size, self.tp_rank)
-            wk = split(k, self.tp_size, self.tp_rank)
-            wv = split(v, self.tp_size, self.tp_rank)
-            fused_qkv = torch.cat((wq, wk, wv), dim=0)
-        else:
-            qkv = torch.cat([q, k, v], dim=0)
-            qkv = qkv.reshape(3, q.shape[0], q.shape[1])
-            fused_qkv = split(qkv, self.tp_size, self.tp_rank, dim=1)
-            fused_qkv = fused_qkv.reshape(3 * (q.shape[0] // self.tp_size),
-                                          q.shape[1])
-        return fused_qkv
-
-
 def convert_hf_llama(hf_model,
                      mapping,
                      rank=0,
@@ -1137,7 +1069,6 @@ if __name__ == '__main__':
         'use_parallel_embedding': args.use_parallel_embedding,
         'embedding_sharding_dim': args.embedding_sharding_dim,
         'share_embedding_table': args.use_embedding_sharing,
-        'use_prompt_tuning': args.use_prompt_tuning,
         'max_draft_len': args.max_medusa_token_len,
         'num_medusa_heads': args.num_medusa_heads,
         'num_medusa_layers': args.num_medusa_layers
@@ -1145,34 +1076,34 @@ if __name__ == '__main__':
 
     if args.use_weight_only:
         if args.weight_only_precision == 'int8':
-            config['quantization']['quant_algo'] = 'W8A16'
+            config['quantization']['quant_algo'] = QuantAlgo.W8A16
         elif args.weight_only_precision == 'int4':
-            config['quantization']['quant_algo'] = 'W4A16'
+            config['quantization']['quant_algo'] = QuantAlgo.W4A16
     elif args.smoothquant:
         if args.per_channel:
             if args.per_token:
                 config['quantization'][
-                    'quant_algo'] = 'W8A8_SQ_PER_CHANNEL_PER_TOKEN_PLUGIN'
+                    'quant_algo'] = QuantAlgo.W8A8_SQ_PER_CHANNEL_PER_TOKEN_PLUGIN
             else:
                 config['quantization'][
-                    'quant_algo'] = 'W8A8_SQ_PER_CHANNEL_PER_TENSOR_PLUGIN'
+                    'quant_algo'] = QuantAlgo.W8A8_SQ_PER_CHANNEL_PER_TENSOR_PLUGIN
         else:
             if args.per_token:
                 config['quantization'][
-                    'quant_algo'] = 'W8A8_SQ_PER_TENSOR_PER_TOKEN_PLUGIN'
+                    'quant_algo'] = QuantAlgo.W8A8_SQ_PER_TENSOR_PER_TOKEN_PLUGIN
             else:
                 config['quantization'][
-                    'quant_algo'] = 'W8A8_SQ_PER_TENSOR_PLUGIN'
+                    'quant_algo'] = QuantAlgo.W8A8_SQ_PER_TENSOR_PLUGIN
 
     if args.int8_kv_cache:
-        config['quantization']['kv_cache_quant_algo'] = 'INT8'
+        config['quantization']['kv_cache_quant_algo'] = QuantAlgo.INT8
 
     if args.weight_only_precision == 'int4_gptq':
         config['quantization'].update({
             "group_size": args.group_size,
             "has_zero_point": True,
             "pre_quant_scale": False,
-            'quant_algo': 'W4A16_GPTQ'
+            'quant_algo': QuantAlgo.W4A16_GPTQ
         })
 
     with open(os.path.join(args.output_dir, 'config.json'), 'w') as f:
@@ -1228,11 +1159,7 @@ if __name__ == '__main__':
                           pp_size=args.pp_size)
 
         if args.use_weight_only and args.weight_only_precision == 'int4_gptq':
-
-            weights = load_from_gptq_llama(args.ammo_quant_ckpt_path,
-                                           hf_config,
-                                           mapping,
-                                           dtype=args.dtype)
+            assert False, "Never supported"
         else:
             if args.load_by_shard:
                 weights = load_from_hf_checkpoint(

@@ -18,14 +18,16 @@
 
 #include "tensorrt_llm/batch_manager/kvCacheConfig.h"
 #include "tensorrt_llm/batch_manager/llmRequest.h" // TODO forward declare
+#include "tensorrt_llm/kernels/kvCacheIndex.h"
 #include "tensorrt_llm/runtime/bufferManager.h"
 #include "tensorrt_llm/runtime/common.h"
 #include "tensorrt_llm/runtime/cudaStream.h"
-#include "tensorrt_llm/runtime/gptModelConfig.h"
 #include "tensorrt_llm/runtime/iTensor.h"
+#include "tensorrt_llm/runtime/modelConfig.h"
 #include "tensorrt_llm/runtime/worldConfig.h"
 
 #include <NvInferRuntime.h>
+
 #include <cstdint>
 #include <functional>
 #include <list>
@@ -88,11 +90,19 @@ struct KvCacheStats
 class KVCacheBlock
 {
 public:
-    explicit KVCacheBlock(SizeType blockIdx);
+    using IdType = std::int32_t;
+
+    explicit KVCacheBlock(IdType blockId, kernels::KVCacheIndex blockIdx);
 
     void startScheduling();
 
-    [[nodiscard]] SizeType getBlockIdx() const;
+    [[nodiscard]] IdType getBlockId() const;
+
+    [[nodiscard]] kernels::KVCacheIndex::UnderlyingType getMemoryPoolBlockIndex() const;
+
+    [[nodiscard]] bool isPrimary() const;
+
+    void swapMemoryPoolBlockOffset(std::shared_ptr<KVCacheBlock> otherBlock);
 
     void incRefCount();
 
@@ -120,6 +130,8 @@ public:
 
     void removeNextBlock(VecTokens const& tokens);
 
+    static std::shared_ptr<KVCacheBlock> findBestGPUBlockToFree(std::shared_ptr<KVCacheBlock> searchStart);
+
     static std::shared_ptr<KVCacheBlock> findLeafBlock(std::shared_ptr<KVCacheBlock> searchStart);
 
     [[nodiscard]] BlockPtr findMatchingBlock(VecTokens const& tokens) const;
@@ -132,8 +144,12 @@ public:
     [[nodiscard]] bool isShared() const;
 
 private:
-    // Linear index of block in pool
-    SizeType mBlockIdx;
+    // Linear ID of block independent of pool
+    IdType mBlockId;
+
+    // Index of block in memory pool backing this block
+    // Choice of pool is encoded into the type
+    kernels::KVCacheIndex mMemoryPoolBlockIndex;
 
     // Number of references to the block
     SizeType mRefCount;
@@ -203,14 +219,14 @@ public:
         return mCacheBlockIds;
     }
 
-    void addCacheBlock(SizeType beamIdx, SizeType blockIdx)
+    void addCacheBlock(SizeType beamIdx, KVCacheBlock::IdType blockId)
     {
-        mCacheBlockIds.at(beamIdx).push_back(blockIdx);
+        mCacheBlockIds.at(beamIdx).push_back(blockId);
     }
 
-    void changeCacheBlock(SizeType beamIdx, SizeType pagedBlockIdx, SizeType blockIdx)
+    void changeCacheBlock(SizeType beamIdx, SizeType pagedBlockIdx, KVCacheBlock::IdType blockId)
     {
-        mCacheBlockIds.at(beamIdx).at(pagedBlockIdx) = blockIdx;
+        mCacheBlockIds.at(beamIdx).at(pagedBlockIdx) = blockId;
     }
 
     void clearCacheBlocks()
@@ -247,7 +263,7 @@ private:
     // Number of beams
     SizeType mBeamWidth;
     // List of blocks allocated for each beam of the sequence
-    std::vector<std::vector<SizeType>> mCacheBlockIds;
+    std::vector<std::vector<KVCacheBlock::IdType>> mCacheBlockIds;
     // Number of tokens already in kv cache before context phase.
     // A value > 0 indicates cached kv cache blocks were reused.
     // One value per beam.
@@ -271,9 +287,13 @@ class BlockManager
 public:
     using SizeType = tensorrt_llm::runtime::SizeType;
 
-    explicit BlockManager(SizeType blocksInPool, SizeType tokensPerBlock);
+    explicit BlockManager(SizeType numLayers, SizeType numKvHeads, SizeType sizePerHead, SizeType tokensPerBlock,
+        SizeType blocksInPrimaryPool, SizeType blocksInSecondaryPool, std::shared_ptr<runtime::CudaStream> stream,
+        bool onboardBlocks);
 
     ~BlockManager();
+
+    void allocatePools(nvinfer1::DataType dtype, bool useUvm);
 
     void startScheduling();
 
@@ -282,6 +302,10 @@ public:
 
     //! \brief Assign blocks for new sequence. Does not try to reuse blocks.
     void addSequence(GenerationRequest& sequence, SizeType numBlocks, SizeType unsharedBlockIdx);
+
+    //! \brief Release block, which puts it back onto free blocks queue.
+    //! \details Block appended by default, will be put at front if toFront is true.
+    void releaseBlock(std::shared_ptr<KVCacheBlock> block, bool toFront = false);
 
     //! \brief Allocate new block for each beam of the sequence.
     //! \details Might free cached blocks if no free blocks are available.
@@ -300,7 +324,7 @@ public:
 
     [[nodiscard]] SizeType getNumFreeBlocks() const noexcept
     {
-        return mFreeBlocks.size();
+        return mFreePrimaryBlocks.size();
     }
 
     [[nodiscard]] SizeType getNumReusedBlocks() const noexcept
@@ -325,13 +349,39 @@ public:
 
     [[nodiscard]] SizeType getMaxNumBlocks() const noexcept
     {
-        return static_cast<SizeType>(mAllBlocksByIdx.size());
+        return static_cast<SizeType>(mAllBlocksById.size());
     }
 
     [[nodiscard]] SizeType getTokensPerBlock() const noexcept
     {
         return mTokensPerBlock;
     }
+
+    //! \brief Get size of one K/V cache block in one layer.
+    //! @details Volume of [numKvHeads, tokensPerBlock, sizePerHead]
+    [[nodiscard]] SizeType getBlockSize() const
+    {
+        return mBlockSize;
+    }
+
+    [[nodiscard]] runtime::ITensor::SharedPtr getPrimaryPool() const noexcept
+    {
+        return mPrimaryPool;
+    }
+
+    [[nodiscard]] runtime::ITensor::SharedPtr getSecondaryPool() const noexcept
+    {
+        return mSecondaryPool;
+    }
+
+    //! \brief Get index in pool to K or V block.
+    //! \param blockId the blockId as returned by getBlockId()
+    //! \param fieldIdx either 0 (K) or 1 (V),
+    [[nodiscard]] kernels::KVCacheIndex getKOrVBlockIndex(KVCacheBlock::IdType blockId, SizeType fieldIdx) const;
+
+    //! \brief Bring offloaded block from secondary to primary memory.
+    //! \details Does nothing of block is already in primary memory.
+    void onboardBlock(BlockPtr offloadBlock);
 
 private:
     //! \brief Add single block to beam of sequence and mAllocatedBlocksPerSeq.
@@ -351,6 +401,11 @@ private:
     SizeType loadOrAllocateBlocks(
         std::list<VecTokens> const& blockedTokens, GenerationRequest& sequence, SizeType beamIdx, SizeType seqSlotIdx);
 
+    //! \brief Find best primary block to free.
+    //! \details The best primary block to free is the primary block that appears first in the queue and have no primary
+    //! block descendants
+    [[nodiscard]] std::shared_ptr<KVCacheBlock> findBestGPUBlockToFree();
+
     //! \brief Find block least likely to be reused, free it if necessary and return.
     [[nodiscard]] BlockPtr getFreeBlock();
 
@@ -360,17 +415,39 @@ private:
     //! \brief Free block from previous block and claim it from free blocks list.
     void claimLeafBlock(KVCacheBlock& block);
 
+    //! \brief Compute pointer to raw KV block (K & V, all layers).
+    [[nodiscard]] runtime::ITensor::SharedPtr computeBlockPointer(std::shared_ptr<KVCacheBlock> block) const;
+
+    //! \brief Copy content of src block to dst.
+    void copyBlock(BlockPtr src, BlockPtr dst);
+
 private:
-    // List of free blocks
-    FreeBlocksQueue mFreeBlocks;
+    // Number of blocks in pools
+    SizeType mNumPrimaryBlocks;
+    SizeType mNumSecondaryBlocks;
+    // List of free blocks. Blocks are either backed by fast primary memory or slow secondary memory,
+    // we maintain separate queues for these.
+    FreeBlocksQueue mFreePrimaryBlocks;
+    FreeBlocksQueue mFreeSecondaryBlocks;
     // List of allocated blocks for each sequences
     std::vector<std::vector<BlockPtr>> mAllocatedBlocksPerSeq;
+    // Memory pools. Primary is fast memory, secondary is slower memory used for offloading.
+    runtime::ITensor::SharedPtr mPrimaryPool;
+    runtime::ITensor::SharedPtr mSecondaryPool;
+    // Whether offloaded blocks should be onboarded before reuse.
+    bool mOnboardBlocks;
+    // Buffer manager
+    runtime::BufferManager mBufferManager;
+    // Number of layers
+    SizeType mNumLayers;
+    // Volume of [numKvHeads, tokensPerBlock, sizePerHead]
+    SizeType mBlockSize;
     // Used to keep track of number of free blocks during scheduling
     SizeType mSchedulingNumFreeBlocks;
     // Number of tokens per one block
     SizeType mTokensPerBlock;
     // List of all blocks by idx
-    std::vector<BlockPtr> mAllBlocksByIdx;
+    std::vector<BlockPtr> mAllBlocksById;
     // Dummy block acting as root for BlockToken searches
     BlockPtr mCachedBlocksRoot;
     // Statistics for block allocations/reuse
@@ -385,9 +462,11 @@ public:
     using CudaStreamPtr = std::shared_ptr<runtime::CudaStream>;
 
     KVCacheManager(SizeType numLayers, SizeType numKvHeads, SizeType sizePerHead, SizeType tokensPerBlock,
-        SizeType maxNumBlocks, SizeType maxNumSequences, SizeType maxBeamWidth, SizeType maxAttentionWindow,
-        SizeType sinkTokenLength, bool useOneMoreBlock, nvinfer1::DataType dtype, CudaStreamPtr stream,
-        bool enableBlockReuse = false, bool useUvm = false);
+        SizeType blocksInPrimaryPool, SizeType blocksInSecondaryPool, SizeType maxNumSequences, SizeType maxBeamWidth,
+        SizeType maxAttentionWindow, SizeType sinkTokenLength, bool useOneMoreBlock, CudaStreamPtr stream,
+        bool enableBlockReuse = false, bool onboardBlocks = true);
+
+    void allocatePools(nvinfer1::DataType dtype, bool useUvm = false);
 
     void startScheduling();
 
@@ -422,12 +501,6 @@ public:
         return kvCacheStats;
     }
 
-    // Volume of [2, numKvHeads, tokensPerBlock, sizePerHead]
-    [[nodiscard]] SizeType getBlockSize() const
-    {
-        return mBlockSize;
-    }
-
     [[nodiscard]] SizeType getMaxBlocksPerSeq() const
     {
         return mMaxBlocksPerSeq;
@@ -450,11 +523,6 @@ public:
     /// @return  The number of blocks
     [[nodiscard]] SizeType getNeededBlocksToCompletion(LlmRequest const& req) const;
 
-    [[nodiscard]] std::vector<runtime::ITensor::SharedPtr> const& getMemoryPools() const
-    {
-        return mPools;
-    }
-
     void addContextTokens(SizeType seqSlotIdx, SizeType numTokens);
 
     void addToken(SizeType seqSlotIdx);
@@ -466,29 +534,32 @@ public:
 
     void schedulingRemoveSequence(SizeType seqSlotIdx);
 
-    void getBlockPointersOfBatch(
-        runtime::ITensor& dstPointers, SizeType firstBatchSlotIdx, SizeType batchSize, SizeType beamWidth) const;
+    [[nodiscard]] runtime::ITensor::UniquePtr getBlockPoolPointers() const;
 
-    void copyBlockPointers(
-        runtime::ITensor& dstPointers, SizeType dstSlotOffset, SizeType seqSlotIdx, SizeType beamWidth) const;
+    void getBlockOffsetsOfBatch(
+        runtime::ITensor& output, SizeType firstBatchSlotIdx, SizeType batchSize, SizeType beamWidth) const;
+
+    //! @return maxBlockCount of all beams
+    SizeType copyBlockOffsets(
+        runtime::ITensor& output, SizeType outputSlotOffset, SizeType seqSlotIdx, SizeType beamWidth) const;
 
     // Volume of [2, numKvHeads, tokensPerBlock, sizePerHead]
-    [[nodiscard]] static SizeType constexpr calculatePageSize(tensorrt_llm::runtime::GptModelConfig const& modelConfig)
+    [[nodiscard]] static SizeType constexpr calculatePageSize(tensorrt_llm::runtime::ModelConfig const& modelConfig)
     {
         return 2 * modelConfig.getNbKvHeads() * modelConfig.getTokensPerBlock() * modelConfig.getSizePerHead();
     }
 
     // numLayers * 2 * numKvHeads * sizePerHead
     [[nodiscard]] static SizeType constexpr calculateCacheSizePerToken(
-        tensorrt_llm::runtime::GptModelConfig const& modelConfig, tensorrt_llm::runtime::WorldConfig const& worldConfig)
+        tensorrt_llm::runtime::ModelConfig const& modelConfig, tensorrt_llm::runtime::WorldConfig const& worldConfig)
     {
-        return modelConfig.getNbLayers(worldConfig.getPipelineParallelism()) * 2 * modelConfig.getNbKvHeads()
+        return modelConfig.getNbAttentionLayers(worldConfig.getPipelineParallelism()) * 2 * modelConfig.getNbKvHeads()
             * modelConfig.getSizePerHead();
     }
 
-    [[nodiscard]] static SizeType calculateMaxNumBlocks(KvCacheConfig const& config, nvinfer1::DataType dtype,
-        tensorrt_llm::runtime::GptModelConfig const& modelConfig, tensorrt_llm::runtime::WorldConfig const& worldConfig,
-        runtime::BufferManager const& bufferManager);
+    [[nodiscard]] static std::tuple<SizeType, SizeType> const calculateMaxNumBlocks(KvCacheConfig const& config,
+        nvinfer1::DataType dtype, tensorrt_llm::runtime::ModelConfig const& modelConfig,
+        tensorrt_llm::runtime::WorldConfig const& worldConfig, runtime::BufferManager const& bufferManager);
 
     [[nodiscard]] SizeType getNumPrepopulatedTokens(SizeType batchSlotIdx, SizeType beamIdx) const
     {
@@ -505,15 +576,16 @@ public:
     void rewindKVCache(SizeType seqSlotIdx, SizeType rewindLengths);
 
 private:
-    void resetBlockPointers(SizeType seqSlotIdx, SizeType beamWidth);
-    void cacheBlockPointers(GenerationRequest const& seq, SizeType seqSlotIdx);
-    void cacheNewBlockPointers(GenerationRequest const& seq, SizeType seqSlotIdx);
+    void setOffsets(kernels::KVCacheIndex* offsetsPtr, nvinfer1::Dims const& offsetsShape, SizeType seqSlotIdx,
+        SizeType beamIdx, SizeType blockIdx, KVCacheBlock::IdType blockId) const;
+
+    void resetBlockOffsets(SizeType seqSlotIdx, SizeType beamWidth);
+    void cacheBlockOffsets(GenerationRequest const& seq, SizeType seqSlotIdx);
+    void cacheNewBlockOffsets(GenerationRequest const& seq, SizeType seqSlotIdx);
     void updateNewBlockPointer(GenerationRequest const& seq, SizeType seqSlotIdx, SizeType blockIdx);
     void updateToken(SizeType seqSlotIdx, bool addToken);
 
 private:
-    // Number of elements per one blocks
-    SizeType mBlockSize;
     // Maximum number of sequences
     SizeType mMaxNumSequences;
     // Maximum beam width
@@ -529,16 +601,12 @@ private:
     SizeType mMaxTokenNum;
     // Number of tokens in the sink blocks
     SizeType mSinkBlockTokenLength;
-    // Pools
-    std::vector<runtime::ITensor::SharedPtr> mPools;
     // Block manager
     BlockManager mBlockManager;
     // List of all sequences
     std::vector<SequencesPtr> mSequences;
-    // buffer for block pointers for all managed sequences
-    runtime::ITensor::SharedPtr mSequenceBlockPointers;
-    // Buffer manager
-    runtime::BufferManager mBufferManager;
+    // buffer for block indices for all managed sequences
+    runtime::ITensor::SharedPtr mSequenceBlockIndices;
     // Whether to cache KV pages for reuse
     bool mEnableBlockReuse;
 };

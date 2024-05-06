@@ -31,7 +31,7 @@ from tensorrt_llm import Builder
 from tensorrt_llm._utils import str_dtype_to_trt, trt_dtype_to_str
 from tensorrt_llm.models.llama.weight import (load_from_hf_llama,
                                               load_from_meta_llama)
-from tensorrt_llm.models.modeling_utils import PretrainedConfig
+from tensorrt_llm.models.modeling_utils import PretrainedConfig, optimize_model
 from tensorrt_llm.network import net_guard
 from tensorrt_llm.plugin.plugin import ContextFMHAType
 
@@ -78,7 +78,6 @@ class TestMistral(unittest.TestCase):
                 },
                 'use_parallel_embedding': False,
                 'embedding_sharding_dim': 0,
-                'use_prompt_tuning': False,
                 'moe_num_experts': 0,
                 'moe_top_k': 0,
                 'moe_tp_mode': 1,
@@ -501,7 +500,6 @@ class TestMistral(unittest.TestCase):
             },
             'use_parallel_embedding': use_parallel_embedding,
             'embedding_sharding_dim': embedding_sharding_dim,
-            'use_prompt_tuning': False,
             'moe_num_experts': 0,
             'moe_top_k': 0,
             'moe_tp_mode': 1,
@@ -512,6 +510,9 @@ class TestMistral(unittest.TestCase):
 
         # print_layers(tensorrt_llm_mistral_wHF)
         tensorrt_llm_mistral_wHF = tensorrt_llm.models.LLaMAForCausalLM(cfg)
+        tensorrt_llm_mistral_wHF = optimize_model(
+            tensorrt_llm_mistral_wHF,
+            use_parallel_embedding=use_parallel_embedding)
 
         weights = load_from_hf_llama(tensorrt_llm_mistral_wHF,
                                      hf_mistral,
@@ -526,6 +527,9 @@ class TestMistral(unittest.TestCase):
         # print_layers(tensorrt_llm_mistral_wHF)
 
         tensorrt_llm_mistral_wMAI = tensorrt_llm.models.LLaMAForCausalLM(cfg)
+        tensorrt_llm_mistral_wMAI = optimize_model(
+            tensorrt_llm_mistral_wMAI,
+            use_parallel_embedding=use_parallel_embedding)
 
         # print_layers(tensorrt_llm_mistral_wMAI)
         weights = load_from_meta_llama(mistralai_path,

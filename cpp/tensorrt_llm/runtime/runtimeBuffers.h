@@ -17,9 +17,12 @@
 #pragma once
 
 #include "tensorrt_llm/runtime/bufferManager.h"
-#include "tensorrt_llm/runtime/gptModelConfig.h"
+#include "tensorrt_llm/runtime/generationConfig.h"
 #include "tensorrt_llm/runtime/iTensor.h"
+#include "tensorrt_llm/runtime/modelConfig.h"
 #include "tensorrt_llm/runtime/promptTuningParams.h"
+#include "tensorrt_llm/runtime/ssmStateBuffers.h"
+#include "tensorrt_llm/runtime/transformerBuffers.h"
 #include "tensorrt_llm/runtime/worldConfig.h"
 
 #include <array>
@@ -43,36 +46,6 @@ protected:
 public:
     using TensorMap = StringPtrMap<ITensor>;
 
-    class GenerationConfig
-    {
-    public:
-        GenerationConfig() = default;
-
-        explicit GenerationConfig(SizeType batchSize, SizeType beamWidth, SizeType maxInputLength,
-            SizeType maxAttentionWindow, SizeType sinkTokenLength, SizeType maxSeqLength,
-            SizeType inputLengthSum = SizeType(0))
-            : batchSize{batchSize}
-            , beamWidth{beamWidth}
-            , maxInputLength{maxInputLength}
-            , maxAttentionWindow{maxAttentionWindow}
-            , sinkTokenLength{sinkTokenLength}
-            , maxSeqLength{maxSeqLength}
-            , inputLengthSum{inputLengthSum}
-        {
-        }
-
-        SizeType batchSize{};
-        SizeType beamWidth{};
-        SizeType maxInputLength{};
-        SizeType maxAttentionWindow{};
-        SizeType sinkTokenLength{};
-        SizeType maxSeqLength{};
-        SizeType inputLengthSum{}; // Initialized only if inputPacked is set to true in fromInput.
-
-        static GenerationConfig fromInput(ITensor const& inputIds, ITensor const& inputLengths, bool inputPacked,
-            SizeType beamWidth, SizeType maxAttentionWindow, SizeType sinkTokenLength, SizeType maxSequenceLength);
-    };
-
 public:
     GenerationConfig generationConfig{};
     std::array<TensorMap, 2> inputBuffers{};
@@ -84,26 +57,16 @@ public:
 
     // engine
     TensorPtr logits;
-    TensorPtr sequenceLengths;     // with attention plugin
-    TensorPtr pastKeyValueLengths; // with attention plugin, host tensor
-    TensorPtr attentionMask;       // without attention plugin
-    TensorPtr positionIds;
+    TensorPtr sequenceLengths; // with attention plugin
     TensorPtr lastTokenIds;
-    TensorPtr requestTypes;        // with attention plugin. Host tensor
+    TensorPtr requestTypes;    // Host tensor, with attention plugin for transformer-based model or for SSM based-model
     TensorPtr allGenerationLogits; // pre-allocate a buffer to save all generation logits, device tensor
     TensorPtr originalLogitsPtr;   // Record the initially created buffer address.
-                                 // `logits` will point to new buffer (i.e. `allGenerationLogits`) for each iteration to
-                                 // avoid overwrite during gather context/generation logits.
-                                 // `originalLogitsPtr` could reset the `logits` point to the initially buffer when
-                                 // microBatch call `buffer.reshape()`. This could avoid next microBatch's `logits`
-                                 // still point to `allGenerationLogits` and bring overwrite conflict.
-
-    std::vector<TensorPtr> presentKeysVals;
-    std::vector<TensorPtr> presentKeysValsAlt; // without attention plugin
-    TensorPtr maxAttentionWindows;             // with attention plugin, host tensor
-    TensorPtr sinkTokenLengths;                // with attention plugin, host tensor
-    TensorPtr kvCacheBlockPointersHost;        // [numLayers, batchSize * beamWidth, 2, maxBlocksPerSeq * 2]
-    TensorPtr kvCacheBlockPointersDevice;      // [numLayers, batchSize * beamWidth, 2, maxBlocksPerSeq * 2]
+    // `logits` will point to new buffer (i.e. `allGenerationLogits`) for each iteration to
+    // avoid overwrite during gather context/generation logits.
+    // `originalLogitsPtr` could reset the `logits` point to the initially buffer when
+    // microBatch call `buffer.reshape()`. This could avoid next microBatch's `logits`
+    // still point to `allGenerationLogits` and bring overwrite conflict.
 
     // References to tmp buffers
     TensorPtr newTokens;
@@ -124,9 +87,15 @@ public:
     // pipeline parallelism
     TensorPtr hiddenStates;
 
+    // Transformer model buffer
+    std::optional<TransformerBuffers> transformerBuffers;
+
     // Prompt tuning
     PromptTuningParams promptTuningParams;
     TensorPtr promptTuningTasksHost; // Tensor to hold tasks on host
+
+    // SSM model buffer
+    std::optional<SsmStateBuffers> ssmStateBuffers;
 
     // generation logit pointer list
     std::shared_ptr<std::vector<TensorPtr>> generationLogitsFragments;
@@ -141,49 +110,33 @@ public:
     void clear();
     void clearTensorMaps();
 
-    void create(TllmRuntime& runtime, GptModelConfig const& modelConfig, WorldConfig const& worldConfig);
+    void create(TllmRuntime const& runtime, ModelConfig const& modelConfig, WorldConfig const& worldConfig);
 
     void initFromInput(ITensor const& inputIds, TensorPtr const& inputLengths, bool inputPacked, SizeType beamWidth,
         SizeType maxAttentionWindow, SizeType sinkTokenLength, SizeType maxSequenceLength, BufferManager& manager);
 
     //! \brief Reshape buffers based on current GenerationConfig
-    void reshape(
-        KvCacheManager const* kvCacheManager, GptModelConfig const& modelConfig, WorldConfig const& worldConfig);
+    void reshape(ModelConfig const& modelConfig, WorldConfig const& worldConfig);
 
     void reset(BufferManager& manager);
 
     std::vector<RuntimeBuffers> split(
-        SizeType contextBatchSize, GptModelConfig const& modelConfig, WorldConfig const& worldConfig);
+        SizeType contextBatchSize, ModelConfig const& modelConfig, WorldConfig const& worldConfig);
 
     void postContextStep(std::vector<RuntimeBuffers> const& contextBuffers, BufferManager& manager,
-        GptModelConfig const& modelConfig, WorldConfig const& worldConfig);
+        ModelConfig const& modelConfig, WorldConfig const& worldConfig);
 
     void prepareContextStep(TensorPtr const& inputIds, TokenIdType padId, BufferManager& manager,
-        KvCacheManager const* kvCacheManager, SizeType firstBatchSlotIdx, GptModelConfig const& modelConfig,
+        KvCacheManager const* kvCacheManager, SizeType firstBatchSlotIdx, ModelConfig const& modelConfig,
         WorldConfig const& worldConfig);
     TensorPtr prepareNextStep(SizeType step, BufferManager& manager, KvCacheManager* kvCacheManager,
-        SizeType firstBatchSlotIdx, GptModelConfig const& modelConfig, WorldConfig const& worldConfig);
+        SizeType firstBatchSlotIdx, ModelConfig const& modelConfig, WorldConfig const& worldConfig);
 
     void getRuntimeBuffers(TensorMap& inputBuffers, TensorMap& outputBuffers, SizeType const step,
-        TensorPtr const& inputIds, TensorPtr const& commPtrs, GptModelConfig const& modelConfig,
+        TensorPtr const& inputIds, TensorPtr const& commPtrs, ModelConfig const& modelConfig,
         WorldConfig const& worldConfig) const;
 
-private:
-    void gatherLastTokenLogits(
-        BufferManager& manager, GptModelConfig const& modelConfig, WorldConfig const& worldConfig);
-
-    void copyAttentionMasks(std::vector<RuntimeBuffers> const& contextBatches, BufferManager& manager);
-
-    // Some tensors are properly tiled, some are just reshaped.
-    void tile(BufferManager& manager, GptModelConfig const& modelConfig, WorldConfig const& worldConfig);
-
-    static std::vector<SizeType> getPositionIdsContextPhaseGlm(SizeType const& batchSize,
-        SizeType const& maxInputLength, SizeType const* pInputLengths, bool const useGptAttentionPlugin,
-        bool const usePackedInput);
-
-    static std::vector<SizeType> getPositionIdsGenerationPhaseGlm(SizeType const& batchSize, SizeType const& beamSize,
-        SizeType const& step, SizeType const* pInputLengths, bool const useGptAttentionPlugin,
-        bool const usePackedInput);
+    void gatherLastTokenLogits(BufferManager& manager, ModelConfig const& modelConfig, WorldConfig const& worldConfig);
 };
 
 } // namespace tensorrt_llm::runtime

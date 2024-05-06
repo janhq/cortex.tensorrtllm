@@ -15,9 +15,9 @@
 
 from typing import Optional
 
+from .lora_manager import LoraBuildConfig
 from .mapping import Mapping
 from .plugin.plugin import PluginConfig
-from .quantization.mode import QuantMode
 
 
 class TopModelMixin:
@@ -28,45 +28,41 @@ class TopModelMixin:
     '''
 
     def __init__(self) -> None:
-        super().__init__()
-        self._trt_engine = None
-        self._builder_config = None
+        pass
 
     @classmethod
     def from_hugging_face(cls,
                           hf_model_dir: str,
                           dtype: Optional[str] = 'float16',
                           mapping: Optional[Mapping] = None,
-                          quant_mode: Optional[QuantMode] = None,
                           **kwargs):
         '''
-        Create and object and load weights from hugging face
+        Create LLM object and load weights from hugging face
         Parameters:
             hf_model_dir: the hugging face model directory
             dtype: str, the default weights data type when loading from the hugging face model
             mapping: Mapping, specify the multi-gpu parallel strategy, when it's None, single GPU is used
-            quant_mode: QuantMode the quantization algorithm to be used, when it's None, no quantization is done
         '''
         raise NotImplementedError("Subclass shall override this")
 
     @classmethod
-    def from_faster_transformer(cls, ft_model_dir: str):
+    def convert_hf_checkpoint(cls,
+                              hf_model_dir: str,
+                              dtype: Optional[str] = "float16",
+                              output_dir: Optional[str] = None,
+                              **kwargs):
         '''
-        create and object and load weights from FasterTransformer'''
+        Convert Huggingface checkpoint to TRT-LLM checkpoint
+        '''
         raise NotImplementedError("Subclass shall override this")
 
-    @classmethod
-    def from_checkpoint(cls, checkpoint_dir: str):
-        raise NotImplementedError("Will implement in the future release")
-
-    def use_lora(self, lora_dir: str, lora_ckpt_source: str):
-        '''Load lora weights and config from the give dir to the module. lora_format should be one of 'hf' or 'nemo'.
-           lora_dir: the directory contains the lora weights
+    def use_lora(self, lora_config: LoraBuildConfig):
         '''
-        # TODO: this is build time API, so pack the lora data together as engine
-        self.lora_dir = lora_dir
-        self.lora_ckpt_source = lora_ckpt_source
-        raise NotImplementedError  # Fill more details later
+        Load lora weights from the give config to the module
+        Parameters:
+           lora_config: the lora config
+        '''
+        raise NotImplementedError("Subclass shall override this")
 
     def use_prompt_tuning(self, max_prompt_embedding_table_size: str,
                           prompt_table_path: str):
@@ -78,16 +74,6 @@ class TopModelMixin:
         # TODO: change the embedding layer member after this.
         self.max_prompt_embedding_table_size = max_prompt_embedding_table_size
         raise NotImplementedError  # Fill more details later
-
-    def use_streaming_llm(self, sink_token_length: int):
-        '''Enable Streaming-LLM feature
-        '''
-        raise NotImplementedError
-
-    def config_moe(self, moe_top_k: int, moe_tp_mode, moe_renorm_mode):
-        '''Configure the moe tuning parameters, the model must a MoE model, otherwise, this fails.
-        '''
-        raise NotImplementedError
 
     def default_plugin_config(self, **kwargs) -> 'PluginConfig':
         '''Return the default plugin config for this model, when the plugin_config value is not given in to_trt() call.

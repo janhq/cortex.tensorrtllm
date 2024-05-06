@@ -6,7 +6,8 @@ import numpy as np
 import tensorrt as trt
 import torch
 
-from tensorrt_llm._utils import trt_dtype_to_np, trt_dtype_to_str
+from tensorrt_llm._utils import (trt_dtype_to_np, trt_dtype_to_str,
+                                 trt_dtype_to_torch)
 from tensorrt_llm.logger import logger
 
 from .pipeline_graph import PipelineGraph
@@ -19,6 +20,12 @@ class ShapeType(Enum):
     MIN = 0
     OPT = 1
     MAX = 2
+
+
+_trt_to_type_dict = {
+    trt.int64: int,
+    trt.bool: bool,
+}
 
 
 def get_shape_layers(trt_network):
@@ -95,16 +102,18 @@ def get_shape_network(trt_network,
             new_layer = shape_graph.add_layer(layer)
             for i in range(layer.num_outputs):
                 output = layer.get_output(i)
-                if output.dtype != trt.DataType.BOOL:
-                    shape_graph.add_output_shape(output)
-                else:
-                    proxy_layer = shape_network.add_identity(
-                        new_layer.as_trt().get_output(i))
+                if output.dtype == trt.DataType.BOOL:
+                    proxy_layer = shape_network.add_cast(
+                        new_layer.as_trt().get_output(i),
+                        trt.DataType.INT32,
+                    )
                     proxy_output = proxy_layer.get_output(0)
-                    proxy_output.dtype = trt.DataType.INT32
                     shape_graph.register_layer(proxy_layer)
                     shape_graph.add_output_shape(proxy_output)
-                    output_mapping[proxy_output.name] = output.name
+                    output_mapping[proxy_output.name] = (output.name,
+                                                         output.dtype)
+                else:
+                    shape_graph.add_output_shape(output)
         elif layer.name in layers_in_shape_network:
             if layer.type == trt.LayerType.CONSTANT:
                 shape_graph.add_input(layer.get_output(0))
@@ -168,7 +177,7 @@ def get_per_layer_graph(
                 )
                 proxy_output = proxy_layer.get_output(0)
                 graph.register_layer(proxy_layer)
-                output_mapping[proxy_output.name] = output.name
+                output_mapping[proxy_output.name] = (output.name, output.dtype)
                 output = proxy_output
             graph.add_output_shape(output)
         else:
@@ -198,19 +207,29 @@ def infer_shapes(network, shapes, values, profile=None):
         if input.is_shape_tensor:
             value = values[input.name]
             context.set_shape_input(engine[input.name], value)
-    context.infer_shapes()
-    assert context.all_binding_shapes_specified
     for i in range(network.num_outputs):
         output = network.get_output(i)
         shape = context.get_tensor_shape(output.name)
-        # if len(shape) == 0:
-        #     shape = trt.Dims([1])
         shapes[output.name] = shape
         if output.is_shape_tensor:
             if shape == [0]:
                 values[output.name] = []
             else:
-                values[output.name] = context.get_shape(engine[output.name])
+                if shape == []:
+                    shape = [1]
+                value = torch.empty(
+                    list(shape),
+                    dtype=trt_dtype_to_torch(output.dtype),
+                    device="cpu",
+                )
+                values[output.name] = value
+                context.set_tensor_address(output.name, value.data_ptr())
+    context.infer_shapes()
+    assert context.all_binding_shapes_specified
+    for i in range(network.num_outputs):
+        output = network.get_output(i)
+        if isinstance(values.get(output.name), torch.Tensor):
+            values[output.name] = values[output.name].tolist()
 
 
 @dataclass
@@ -264,27 +283,29 @@ def infer_per_layer_shapes(
                 if output_values[i] is not None:
                     values[output.name] = output_values[i]
             return
-    logger.debug(f"infer shapes for layer {layer.name}")
     graph, output_mapping = get_per_layer_graph(layer, shapes, values)
+    dtypes = [
+        trt_dtype_to_str(layer.get_input(i).dtype)
+        for i in range(layer.num_inputs)
+    ]
+    layer_info = (f"type={cache_key[0]}, "
+                  f"attrs={dict(cache_key[1])}, "
+                  f"dtypes={dtypes}, "
+                  f"shapes={list(cache_key[2])}, "
+                  f"values={list(cache_key[3])}")
+    logger.debug(f"infer shapes for layer {layer.name} ({layer_info})")
     try:
         infer_shapes(graph.as_trt(), shapes, values)
     except RuntimeError as e:
-        dtypes = [
-            trt_dtype_to_str(layer.get_input(i).dtype)
-            for i in range(layer.num_inputs)
-        ]
-        layer_info = (f"type={cache_key[0]}, "
-                      f"attrs={dict(cache_key[1])}, "
-                      f"dtypes={dtypes}, "
-                      f"shapes={list(cache_key[2])}, "
-                      f"values={list(cache_key[3])}")
         raise RuntimeError(
             f"infer shapes failed for layer {layer.name} ({layer_info})") from e
-    for proxy_output, output in output_mapping.items():
+    for proxy_output, (output, dtype) in output_mapping.items():
         shapes[output] = shapes[proxy_output]
         del shapes[proxy_output]
         if proxy_output in values:
-            values[output] = [*map(bool, values[proxy_output])]
+            values[output] = [
+                *map(_trt_to_type_dict[dtype], values[proxy_output])
+            ]
             del values[proxy_output]
     if cache is not None:
         logger.debug(
@@ -314,9 +335,11 @@ def get_shape_info(trt_network, profile, shape_type: ShapeType = ShapeType.OPT):
         shape_type=shape_type)
     try:
         infer_shapes(shape_network, shapes, values, shape_profile)
-        for proxy_output, output in output_mapping.items():
+        for proxy_output, (output, dtype) in output_mapping.items():
             shapes[output] = shapes[proxy_output]
-            values[output] = [*map(bool, values[proxy_output])]
+            values[output] = [
+                *map(_trt_to_type_dict[dtype], values[proxy_output])
+            ]
             del shapes[proxy_output]
             del values[proxy_output]
     except RuntimeError:

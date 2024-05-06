@@ -29,8 +29,6 @@ namespace tk = tensorrt_llm::kernels;
 namespace
 {
 
-static float constexpr HALF_FLT_MAX = 65504.F;
-
 __global__ void generateRandomNumber(int32_t* vals, curandState_t* states, int const batch_size)
 {
     int idx = threadIdx.x;
@@ -142,45 +140,6 @@ TEST_F(SamplingUtilsKernelTest, CurandBatchInitialize)
     cudaFree(curandStates);
     sync_check_cuda_error();
 }
-
-TEST_F(SamplingUtilsKernelTest, invokeTopPInitialize)
-{
-    int32_t const batchSize = 8;
-    int32_t const vocabSize = 256;
-
-    auto const topPIdValsDevice
-        = this->mBufferManager->gpu(ITensor::makeShape({batchSize, vocabSize}), nvinfer1::DataType::kINT32);
-    auto const beginOffsetsDevice
-        = this->mBufferManager->gpu(ITensor::makeShape({batchSize + 1}), nvinfer1::DataType::kINT32);
-    auto const endOffsetsDevice
-        = this->mBufferManager->gpu(ITensor::makeShape({batchSize + 1}), nvinfer1::DataType::kINT32);
-
-    tk::invokeTopPInitialize(bufferCast<int32_t>(*topPIdValsDevice), bufferCast<int32_t>(*endOffsetsDevice),
-        bufferCast<int32_t>(*beginOffsetsDevice), batchSize, vocabSize, this->mStream->get());
-
-    auto const topPIdValsHost = this->mBufferManager->copyFrom(*topPIdValsDevice, MemoryType::kCPU);
-    auto const endOffsetsHost = this->mBufferManager->copyFrom(*endOffsetsDevice, MemoryType::kCPU);
-    auto const beginOffsetsHost = this->mBufferManager->copyFrom(*beginOffsetsDevice, MemoryType::kCPU);
-
-    this->mStream->synchronize();
-
-    auto const topPIdValsHostPtr = bufferCast<int32_t>(*topPIdValsHost);
-    auto const endOffsetsHostPtr = bufferCast<int32_t>(*endOffsetsHost);
-    auto const beginOffsetsHostPtr = bufferCast<int32_t>(*beginOffsetsHost);
-
-    for (int32_t bi = 0; bi < batchSize + 1; ++bi)
-    {
-        EXPECT_EQ(endOffsetsHostPtr[bi], bi * vocabSize);
-        EXPECT_EQ(beginOffsetsHostPtr[bi], bi * vocabSize);
-    }
-    for (int32_t bi = 0; bi < batchSize; ++bi)
-    {
-        for (int32_t vi = 0; vi < vocabSize; ++vi)
-        {
-            EXPECT_EQ(topPIdValsHostPtr[bi * vocabSize + vi], vi);
-        }
-    }
-};
 
 template <typename T>
 class SamplingUtilsTypedKernelTest : public SamplingKernelTest<T>

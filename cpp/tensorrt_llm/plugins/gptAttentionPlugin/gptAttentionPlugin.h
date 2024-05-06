@@ -54,8 +54,9 @@ namespace tensorrt_llm::plugins
 //     mode,
 //                      all elements must be identical.
 //     8.  past_key_value_pool [batch_size, 2, local_num_kv_heads, max_seq_len, head_size] or
-//         block_pointers [num_layers, batch_size, 2, max_blocks_per_seq] if paged kv cache (optional)
-//     8.1 host_block_pointers [num_layers, batch_size, 2, max_blocks_per_seq] if paged kv cache (optional)
+//         block_offsets [batch_size, 2, max_blocks_per_seq] if paged kv cache (optional)
+//     8.1 host_block_offsets [batch_size, 2, max_blocks_per_seq] if paged kv cache (optional)
+//     8.2 host_pool_pointers [2] if paged kv cache (optional)
 //     9.  kv_cache_quantization_scale [1] (optional)
 //     10. kv_cache_dequantization_scale [1] (optional)
 //     11. alibi_slopes [num_heads] (optional for ALiBi position embedding)
@@ -80,8 +81,8 @@ public:
         int kv_cache_quant_mode, bool remove_input_padding, tensorrt_llm::kernels::AttentionMaskType mask_type,
         bool paged_kv_cache, int tokens_per_block, nvinfer1::DataType type, int32_t max_context_length,
         bool qkv_bias_enabled, bool cross_attention = false, int max_distance = 0, bool pos_shift_enabled = false,
-        bool dense_context_fmha = false, bool use_paged_context_fmha = false, bool use_cache = true,
-        bool is_medusa_enabled = false);
+        bool dense_context_fmha = false, bool use_paged_context_fmha = false, bool use_fp8_context_fmha = false,
+        bool use_cache = true, bool is_medusa_enabled = false);
 
     GPTAttentionPlugin(void const* data, size_t length);
 
@@ -159,11 +160,14 @@ private:
         CONTEXT_LENGTHS,
         CACHE_INDIR,
         REQUEST_TYPES,
-        KV_CACHE_BLOCK_POINTERS,
-        HOST_KV_CACHE_BLOCK_POINTERS,
+        KV_CACHE_BLOCK_OFFSETS,
+        HOST_KV_CACHE_BLOCK_OFFSETS,
+        HOST_KV_CACHE_POOL_POINTERS,
         PAST_KEY_VALUE,
         KV_CACHE_QUANTIZATION_SCALE,
         KV_CACHE_DEQUANTIZATION_SCALE,
+        ATTENTION_OUTPUT_QUANTIZATION_SCALE,
+        ROTARY_COS_SIN,
         ALIBI_SLOPES,
         RELATIVE_ATTENTION_BIAS,
         CROSS_QKV,

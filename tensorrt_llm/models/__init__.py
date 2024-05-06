@@ -17,10 +17,11 @@ from .bert.model import (BertForQuestionAnswering,
                          BertForSequenceClassification, BertModel)
 from .bloom.model import BloomForCausalLM, BloomModel
 from .chatglm.model import ChatGLMForCausalLM, ChatGLMModel
+from .dbrx.model import DbrxForCausalLM
 from .enc_dec.model import DecoderModel, EncoderModel, WhisperEncoder
 from .falcon.model import FalconForCausalLM, FalconModel
 from .gemma.model import GemmaForCausalLM
-from .gpt.model import GPTLMHeadModel, GPTModel
+from .gpt.model import GPTForCausalLM, GPTModel
 from .gptj.model import GPTJForCausalLM, GPTJModel
 from .gptneox.model import GPTNeoXForCausalLM, GPTNeoXModel
 from .llama.model import LLaMAForCausalLM, LLaMAModel
@@ -31,8 +32,7 @@ from .mpt.model import MPTForCausalLM, MPTModel
 from .opt.model import OPTForCausalLM, OPTModel
 from .phi.model import PhiForCausalLM, PhiModel
 from .qwen.model import QWenForCausalLM
-
-from .quantized.quant import quantize_model  # noqa # isort:skip
+from .recurrentgemma.model import RecurrentGemmaForCausalLM
 
 __all__ = [
     'BertModel',
@@ -43,7 +43,7 @@ __all__ = [
     'FalconForCausalLM',
     'FalconModel',
     'GPTModel',
-    'GPTLMHeadModel',
+    'GPTForCausalLM',
     'OPTForCausalLM',
     'OPTModel',
     'LLaMAForCausalLM',
@@ -55,7 +55,6 @@ __all__ = [
     'GPTNeoXForCausalLM',
     'PhiModel',
     'PhiForCausalLM',
-    'quantize_model',
     'ChatGLMForCausalLM',
     'ChatGLMModel',
     'BaichuanForCausalLM',
@@ -70,9 +69,12 @@ __all__ = [
     'MPTModel',
     'SkyworkForCausalLM',
     'GemmaForCausalLM',
+    'DbrxForCausalLM',
+    'RecurrentGemmaForCausalLM',
 ]
 
 MODEL_MAP = {
+    'GPTForCausalLM': GPTForCausalLM,
     'OPTForCausalLM': OPTForCausalLM,
     'BloomForCausalLM': BloomForCausalLM,
     'FalconForCausalLM': FalconForCausalLM,
@@ -90,4 +92,9 @@ MODEL_MAP = {
     'BaichuanForCausalLM': BaichuanForCausalLM,
     'SkyworkForCausalLM': LLaMAForCausalLM,
     'GemmaForCausalLM': GemmaForCausalLM,
+    'QWenForCausalLM': QWenForCausalLM,
+    'EncoderModel': EncoderModel,
+    'DecoderModel': DecoderModel,
+    'DbrxForCausalLM': DbrxForCausalLM,
+    'RecurrentGemmaForCausalLM': RecurrentGemmaForCausalLM,
 }

@@ -146,19 +146,9 @@ class FalconModel(Module):
         super().__init__()
         self.config = config
         if config.mapping.is_first_pp_rank():
-            if config.use_parallel_embedding:
-                self.vocab_embedding = Embedding(
-                    config.vocab_size,
-                    config.hidden_size,
-                    dtype=config.dtype,
-                    tp_group=config.mapping.tp_group,
-                    tp_size=config.mapping.tp_size,
-                    sharding_dim=config.embedding_sharding_dim,
-                    tp_rank=config.mapping.tp_rank)
-            else:
-                self.vocab_embedding = Embedding(config.vocab_size,
-                                                 config.hidden_size,
-                                                 dtype=config.dtype)
+            self.vocab_embedding = Embedding(config.vocab_size,
+                                             config.hidden_size,
+                                             dtype=config.dtype)
 
         self.layers = DecoderLayerList(FalconDecoderLayer, config)
         if config.mapping.is_last_pp_rank():
@@ -173,9 +163,6 @@ class FalconModel(Module):
                 kv_cache_params=None,
                 attention_params=None,
                 hidden_states=None):
-        if use_cache:
-            presents = []
-
         if self.config.mapping.is_first_pp_rank():
             hidden_states = self.vocab_embedding(input_ids)
         else:
@@ -207,21 +194,17 @@ class FalconForCausalLM(DecoderModelForCausalLM):
     def __init__(self, config: PretrainedConfig):
         self.check_config(config)
         transformer = FalconModel(config)
-        vocab_size_padded = pad_vocab_size(config.vocab_size,
-                                           config.mapping.tp_size)
-        if config.mapping.is_last_pp_rank():
-            share_weight = None
-            if config.share_embedding_table:
-                share_weight = transformer.vocab_embedding.weight
 
+        if config.mapping.is_last_pp_rank():
+            vocab_size_padded = pad_vocab_size(config.vocab_size,
+                                               config.mapping.tp_size)
             lm_head = ColumnLinear(config.hidden_size,
                                    vocab_size_padded,
                                    bias=False,
                                    dtype=config.dtype,
                                    tp_group=config.mapping.tp_group,
                                    tp_size=config.mapping.tp_size,
-                                   gather_output=True,
-                                   share_weight=share_weight)
+                                   gather_output=True)
         else:
             lm_head = None
         super().__init__(config, transformer, lm_head)

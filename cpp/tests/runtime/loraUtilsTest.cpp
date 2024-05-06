@@ -18,11 +18,11 @@
 #include <gtest/gtest.h>
 
 #include "tensorrt_llm/runtime/bufferManager.h"
-#include "tensorrt_llm/runtime/gptModelConfig.h"
 #include "tensorrt_llm/runtime/iBuffer.h"
 #include "tensorrt_llm/runtime/iTensor.h"
 #include "tensorrt_llm/runtime/loraModule.h"
 #include "tensorrt_llm/runtime/loraUtils.h"
+#include "tensorrt_llm/runtime/modelConfig.h"
 #include "tensorrt_llm/runtime/worldConfig.h"
 #include <NvInferRuntimeBase.h>
 
@@ -85,7 +85,7 @@ TEST_F(LoraUtilsTest, dims_mem_type)
 
 TEST_F(LoraUtilsTest, loraValidateRequestTensors)
 {
-    auto modelConfig = GptModelConfig(0, 2, 1, 4, nvinfer1::DataType::kFLOAT);
+    auto modelConfig = ModelConfig(0, 2, 0, 1, 4, nvinfer1::DataType::kFLOAT);
     auto worldConfig = WorldConfig();
 
     std::optional<TensorPtr> optReqLoraWeights
@@ -105,7 +105,8 @@ TEST_F(LoraUtilsTest, loraValidateRequestTensors)
     auto configPtr = bufferCast<int32_t>(*optReqLoraConfig.value());
     std::copy_n(config.data(), config.size(), configPtr);
 
-    EXPECT_THAT([&]() { loraValidateRequestTensors(optReqLoraWeights, optReqLoraConfig, modelConfig, worldConfig); },
+    EXPECT_THAT([&]()
+        { loraValidateRequestTensors(12345, optReqLoraWeights, optReqLoraConfig, modelConfig, worldConfig); },
         testing::Throws<std::runtime_error>());
 
     std::vector<LoraModule> modules{
@@ -113,7 +114,11 @@ TEST_F(LoraUtilsTest, loraValidateRequestTensors)
     };
     modelConfig.setLoraModules(modules);
 
-    loraValidateRequestTensors(optReqLoraWeights, optReqLoraConfig, modelConfig, worldConfig);
+    loraValidateRequestTensors(12345, optReqLoraWeights, optReqLoraConfig, modelConfig, worldConfig);
+
+    EXPECT_THAT([&]()
+        { loraValidateRequestTensors(std::nullopt, optReqLoraWeights, optReqLoraConfig, modelConfig, worldConfig); },
+        testing::Throws<std::runtime_error>());
 }
 
 } // namespace tensorrt_llm::runtime::lora

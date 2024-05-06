@@ -2,6 +2,15 @@
 
 This document explains how to build the [Phi](https://huggingface.co/microsoft/phi-2) model using TensorRT-LLM and run on a single GPU.
 
+- [Phi](#phi)
+  - [Overview](#overview)
+  - [Support Matrix](#support-matrix)
+  - [Usage](#usage)
+    - [1. Convert weights from HF Transformers to TensorRT-LLM format](#1-convert-weights-from-hf-transformers-to-tensorrt-llm-format)
+    - [2. Build TensorRT engine(s)](#2-build-tensorrt-engines)
+      - [Fused MultiHead Attention (FMHA)](#fused-multihead-attention-fmha)
+    - [3. Summarization using the Phi model](#3-summarization-using-the-phi-model)
+
 ## Overview
 
 The TensorRT-LLM Phi implementation can be found in [`tensorrt_llm/models/phi/model.py`](../../tensorrt_llm/models/phi/model.py). The TensorRT-LLM Phi example code is located in [`examples/phi`](./). There is one file:
@@ -22,6 +31,12 @@ In addition, there are two shared files in the parent folder [`examples`](../) f
 
 ### 1. Convert weights from HF Transformers to TensorRT-LLM format
 
+Please install required packages first:
+
+```bash
+pip install -r requirements.txt
+```
+
 ```bash
 python ./convert_checkpoint.py --model_dir "microsoft/phi-2" --output_dir ./phi-2-checkpoint --dtype float16
 ```
@@ -35,7 +50,7 @@ Examples of build invocations:
 ```bash
 # Build a float16 engine using a single GPU and HF weights.
 # Enable several TensorRT-LLM plugins to increase runtime performance. It also helps with build time.
-# workers == tp_size
+# --tp_size and --pp_size are the model shard size
 trtllm-build \
     --checkpoint_dir ./phi-2-checkpoint \
     --output_dir ./phi-2-engine \
@@ -43,7 +58,8 @@ trtllm-build \
     --max_batch_size 8 \
     --max_input_len 1024 \
     --max_output_len 1024 \
-    --workers 1
+    --tp_size 1 \
+    --pp_size 1
 ```
 
 #### Fused MultiHead Attention (FMHA)

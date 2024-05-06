@@ -15,8 +15,6 @@
 # limitations under the License.
 import argparse
 import datetime
-#from utils.convert import cpu_map_location
-#from utils.nemo import unpack_nemo_ckpt
 import json
 import logging
 import re
@@ -26,8 +24,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from tensorrt_llm._utils import str_dtype_to_torch
-from tensorrt_llm.lora_manager import LoraConfig
+from tensorrt_llm._utils import str_dtype_to_torch, torch_to_numpy
+from tensorrt_llm.lora_manager import LoraManager
 
 log_format = "%(asctime)s %(name)s [%(levelname)s] %(message)s"
 logging.basicConfig(format=log_format)
@@ -70,7 +68,7 @@ hf_modules_to_trtllm_modules = {
     "up_proj": "mlp_gate"
 }  # lora modules on llama
 hf_modules_to_module_id = {
-    k: LoraConfig.LORA_MODULE_IDS[v]
+    k: LoraManager.LORA_MODULE_IDS[v]
     for k, v in hf_modules_to_trtllm_modules.items()
 }
 
@@ -119,9 +117,10 @@ def convert_hf_model(model_dir, dtype, out_dir):
         converted_weights[i] = torch.nn.functional.pad(
             converted_weights[i],
             (0, max_row_size - converted_weights[i].shape[0])).unsqueeze(0)
-    converted_weights = torch.concatenate(
-        converted_weights,
-        dim=0).unsqueeze(0).to(dtype=str_dtype_to_torch(dtype)).cpu().numpy()
+    converted_weights = torch_to_numpy(
+        torch.concatenate(
+            converted_weights,
+            dim=0).unsqueeze(0).to(dtype=str_dtype_to_torch(dtype)).cpu())
     converted_config = torch.tensor(converted_config,
                                     dtype=torch.int32,
                                     device='cpu').unsqueeze(0).numpy()

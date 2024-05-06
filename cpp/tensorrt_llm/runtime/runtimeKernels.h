@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "tensorrt_llm/kernels/kvCacheIndex.h"
 #include "tensorrt_llm/runtime/bufferManager.h"
 #include "tensorrt_llm/runtime/common.h"
 #include "tensorrt_llm/runtime/cudaStream.h"
@@ -94,4 +95,10 @@ void mergeLogitsFragments(BufferManager const& bufferManager, ITensor& output, s
     ITensor& cachePointerDevice, ITensor& cachePointerHost, SizeType firstBatchSlotIdx, SizeType const microBatchSize,
     SizeType const beamWidth, CudaStream const& stream, int stepOffset);
 
+void invokeUpdateKVBlockArrayDraftTokenLocation(ITensor const& seqAcceptedDraftTokenOffsets,
+    ITensor const& packedAcceptedDraftTokensIndices, ITensor const& pastKeyValueLengths, void* const* pointerArray,
+    ::tensorrt_llm::kernels::KVCacheIndex const* offsetArray, SizeType layerCount, SizeType seqCount,
+    SizeType numKVHeads, SizeType sizeInBytesPerKVHead, SizeType rewindDraftTokenCommonCount,
+    int* rewindDraftTokenSeparateAdjustments, ITensor const& seqSlotRemapping, SizeType maxKVCacheLen,
+    SizeType maxBlocksPerSeq, SizeType tokensPerBlock, cudaStream_t stream);
 } // namespace tensorrt_llm::runtime::kernels

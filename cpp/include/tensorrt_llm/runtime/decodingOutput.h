@@ -19,7 +19,7 @@
 #include "tensorrt_llm/runtime/bufferManager.h"
 #include "tensorrt_llm/runtime/common.h"
 #include "tensorrt_llm/runtime/iTensor.h"
-
+#include <optional>
 #include <utility>
 
 namespace tensorrt_llm::runtime
@@ -29,17 +29,21 @@ class DecodingOutput
 public:
     using TensorPtr = ITensor::SharedPtr;
 
+    // BS: batch_size, BM: beam_width, MSL: max_seq_length
+    // All TensorPtr without special comments are on gpu
+
     class BeamHypotheses
     {
     public:
-        TensorPtr outputIdsTgt;       // [batchSize, 2 * beamWidth, maxSeqLen]
-        TensorPtr sequenceLengthsTgt; // [batchSize, 2 * beamWidth]
-        TensorPtr cumLogProbs;        // [batchSize, 2 * beamWidth]
-        TensorPtr normedScores;       // [batchSize, 2 * beamWidth]
-        TensorPtr logProbs;           // [batchSize, 2 * beamWidth, maxSeqLen]
-        TensorPtr minNormedScores;    // [batchSize]
-        TensorPtr numBeams;           // [batchSize]
-        TensorPtr isDone;             // [batchSize]
+        // The same as cpp/tensorrt_llm/kernels/beamSearchKernels.h
+        TensorPtr outputIdsCBA;       // [BS, BM*2, MSL]
+        TensorPtr sequenceLengthsCBA; // [BS, BM]
+        TensorPtr cumLogProbsCBA;     // [BS, BM*2]
+        TensorPtr normedScoresCBA;    // [BS, BM*2]
+        TensorPtr logProbsCBA;        // [BS, BM*2, MSL]
+        TensorPtr minNormedScoresCBA; // [BS]
+        TensorPtr numBeamsCBA;        // [BS]
+        TensorPtr batchDones;         // [BS]
 
         void empty(BufferManager& manager);
 
@@ -61,29 +65,40 @@ public:
     }
 
     // mandatory parameters
-    TensorPtr ids; // [batchSize, beamWidth, maxSeqLen], on gpu, must contain previously generated token ids for all
-                   // steps before DecodingInput.step
-    TensorPtr newTokensSteps; // [maxTokensPerStep, batchSize, beamWidth] new tokens at each generated token of
-                              // maxTokensPerStep, on gpu.
-    TensorPtr newTokens;      // [batchSize, beamWidth] usually a view of newTokensSteps for the current token, on gpu.
-    std::vector<TensorPtr> newTokensVec; // vector of size maxTokensPerStep with tensor [batchSize, beamWidth].
-                                         // Vector of views on newTokensSteps for each token. Elements are on gpu.
+    TensorPtr ids;                       // [BS, BM, MSL], contains previously generated token ids for all
+                                         // steps before DecodingInput.step
+    TensorPtr newTokensSteps;            // [maxTokensPerStep, BS, BM] new tokens at each generated token of
+                                         // maxTokensPerStep
+    TensorPtr newTokens;                 // [BS, BM] usually a view of newTokensSteps for the current token
+    std::vector<TensorPtr> newTokensVec; // vector of size maxTokensPerStep with tensor [BS, BM].
+                                         // Vector of views on newTokensSteps for each token
 
     // optional parameters
-    TensorPtr finished; // [batchSize, beamWidth],
-                        // Set to true by decoding if any of the stop conditions are met or if DecodingInput.finished is
-                        // true. In beam search and to determine whether to stop according to
-                        // DecodingInput.sequenceLimitLength, on gpu
-    TensorPtr finishedSum; // [batchSize], the sum of finished sequences per request, in pinned memory
+    TensorPtr finished; // [BS, BM], set to true by decoding if any of the stop conditions are met or if
+                        // DecodingInput.finished is true. In beam search and to determine whether to stop according to
+                        // DecodingInput.sequenceLimitLength
+    TensorPtr finishedSum; // [BS], the sum of finished sequences per request, in pinned memory
 
     // mandatory parameters for beam search
-    TensorPtr logProbs;         // [batchSize, beamWidth, maxSeqLen], must be float*, on gpu
-    TensorPtr cumLogProbs;      // [batchSize, beamWidth], optional for sampling, on gpu
-    TensorPtr parentIds;        // [batchSize, beamWidth, maxSeqLen], on gpu
-    TensorPtr lengths;          // [batchSize, beamWidth], total sequence lengths including padding, on gpu
-    TensorPtr cacheIndirection; // [batchSize, beamWidth, maxSeqLen], k/v indirection for next generation step, on gpu
+    TensorPtr logProbs;         // [BS, BM, MSL], must be float*
+    TensorPtr cumLogProbs;      // [BS, BM], optional for sampling
+    TensorPtr parentIds;        // [BS, BM, MSL]
+    TensorPtr lengths;          // [BS, BM], total sequence lengths including padding
+    TensorPtr cacheIndirection; // [BS, BM, MSL], k/v indirection for next generation step
 
     BeamHypotheses beamHypotheses;
+
+    // Medusa
+    class MedusaOutputs
+    {
+    public:
+        TensorPtr medusaNextDraftTokens;       // [maxBatchSize, maxTokensPerStep]
+        TensorPtr medusaAcceptedTokensLen;     // [maxBatchSize]
+        TensorPtr medusaAcceptedLengthsCumSum; // [maxBatchSize + 1]
+        TensorPtr medusaPathsOffsets;          // [maxBatchSize * maxNumHeads]
+    };
+
+    std::optional<MedusaOutputs> medusaOutputs;
 };
 
 } // namespace tensorrt_llm::runtime

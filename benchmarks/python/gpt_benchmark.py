@@ -12,10 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import json
 import os
 from dataclasses import asdict
 from math import ceil
 
+import pandas as pd
+import tensorrt as trt
 import torch
 
 import tensorrt_llm
@@ -23,7 +26,7 @@ from tensorrt_llm.profiler import bytes_to_target_unit
 
 from allowed_configs import get_build_config, BuildConfig  # isort:skip
 from base_benchmark import BaseBenchmark  # isort:skip
-from build import build_gpt, get_quant_mode  # isort:skip
+from build import build_gpt, get_quant_config  # isort:skip
 
 
 def element_size(dtype: str):
@@ -59,6 +62,11 @@ class GPTBenchmark(BaseBenchmark):
         # for large model, this approximate is close enough.
         self.weights_size_approx = 0
 
+        self.dump_layer_info = args.dump_layer_info
+        # change profiling_verbosity to detailed when enabling dump layer info
+        if self.dump_layer_info:
+            args.profiling_verbosity = "detailed"
+
         if args.engine_dir is not None:
             # Get build configs from engine directory is done in base class
             # Deserialize engine from engine directory
@@ -81,7 +89,8 @@ class GPTBenchmark(BaseBenchmark):
             if args.max_output_len is not None:
                 self.max_output_len = args.max_output_len
 
-            self.quant_mode, _, _ = get_quant_mode(args.quantization)
+            self.quant_config = get_quant_config(args.quantization)
+            self.quant_mode = self.quant_config.quant_mode
             self.enable_fp8 = self.quant_mode.has_fp8_qdq()
             self.fp8_kv_cache = self.quant_mode.has_fp8_kv_cache()
             if self.quant_mode.has_fp8_kv_cache():
@@ -92,10 +101,12 @@ class GPTBenchmark(BaseBenchmark):
             # Plugins
             self.use_gpt_attention_plugin = False
             self.remove_input_padding = False
+            self.use_mamba_conv1d_plugin = False
             if args.mode == 'plugin':
                 self.use_gpt_attention_plugin = True
                 self.remove_input_padding = True
                 self.use_moe_plugin = True
+                self.use_mamba_conv1d_plugin = True
             elif args.mode == 'ootb-except-mha':
                 self.use_gpt_attention_plugin = True
 
@@ -121,10 +132,20 @@ class GPTBenchmark(BaseBenchmark):
             gpt_attention_plugin=self.use_gpt_attention_plugin,
             paged_kv_cache=self.paged_kv_cache if hasattr(
                 self, 'paged_kv_cache') else False,
+            paged_state=self.paged_state
+            if hasattr(self, 'paged_state') else False,
             dtype=self.dtype,
             remove_input_padding=self.remove_input_padding,
             quant_mode=self.quant_mode,
             use_custom_all_reduce=self.use_custom_all_reduce,
+            tokens_per_block=self.tokens_per_block if hasattr(
+                self, 'tokens_per_block') else 64,
+            mamba_conv1d_plugin=self.use_mamba_conv1d_plugin,
+            conv_kernel=self.conv_kernel if hasattr(self, 'conv_kernel') else 0,
+            layer_types=self.layer_types
+            if hasattr(self, 'layer_types') else [],
+            rnn_hidden_size=self.rnn_hidden_size if hasattr(
+                self, 'rnn_hidden_size') else 0,
         )
         if args.model == 'chatglm_6b':
             self.sampling_config = tensorrt_llm.runtime.SamplingConfig(
@@ -148,8 +169,6 @@ class GPTBenchmark(BaseBenchmark):
             model_config.mamba_d_state = self.mamba_d_state
             model_config.mamba_d_conv = self.mamba_d_conv
             model_config.mamba_expand = self.mamba_expand
-            self.remove_input_padding = False
-            model_config.remove_input_padding = False
             self.sampling_config = tensorrt_llm.runtime.SamplingConfig(
                 end_id=0, pad_id=0, top_k=args.top_k, top_p=args.top_p)
             self.decoder = tensorrt_llm.runtime.MambaLMHeadModelGenerationSession(
@@ -174,6 +193,12 @@ class GPTBenchmark(BaseBenchmark):
                 engine_buffer,
                 self.runtime_mapping,
                 cuda_graph_mode=self.cuda_graph_mode)
+
+        # Print context memory size for CI/CD to track.
+        context_mem_size = self.decoder.context_mem_size
+        print(
+            f"Allocated {context_mem_size / 1048576.0:.2f} MiB for execution context memory."
+        )
 
     def get_config(self):
         for inlen, outlen in self.in_out_lens:
@@ -249,9 +274,17 @@ class GPTBenchmark(BaseBenchmark):
         batch_size, inlen, outlen = io_shapes[0], io_shapes[1], io_shapes[2]
         kv_cache_size_in_bytes = batch_size*self.num_beams*(inlen + outlen)* \
             self.kv_cache_elem_per_token(self.build_config, self.runtime_mapping.tp_size, self.runtime_mapping.pp_size) * element_size(self.kv_dtype)
-        # when MHA is OOTB, it requires 2x KV cache size, one for past as engine input, one for present as engine output
+        # when MHA is OOTB, it requires extra KV cache size, because OOTB don't support inplace updating KV cache.
         if not self.use_gpt_attention_plugin:
-            kv_cache_size_in_bytes *= 2
+            if os.getenv('TRTLLM_DISABLE_OOTB_KVCACHE_REUSE') != 'ON':
+                local_n_layer = ceil(self.build_config.num_layers /
+                                     self.runtime_mapping.pp_size)
+                kv_cache_size_in_bytes = kv_cache_size_in_bytes / local_n_layer * (
+                    local_n_layer + 1)
+            else:
+                # without reusing, we need one for past as engine inputs, one for present as engine outputs.
+                kv_cache_size_in_bytes *= 2
+
         kv_cache_size_in_mb = bytes_to_target_unit(kv_cache_size_in_bytes,
                                                    "MiB")
         activation_size_in_mb = bytes_to_target_unit(
@@ -336,3 +369,67 @@ class GPTBenchmark(BaseBenchmark):
                 kv_pairs = [f"{k} {v}" for k, v in report_dict.items()]
                 line = '[BENCHMARK] ' + " ".join(kv_pairs)
                 print(line)
+
+        if self.dump_layer_info:
+            engine_inspector = self.decoder.engine_inspector
+            inspector_result = engine_inspector.get_engine_information(
+                trt.LayerInformationFormat.JSON)
+            json_result = json.loads(inspector_result)
+            layers = json_result["Layers"]
+            for layer_idx, _ in enumerate(layers):
+                layer_info = engine_inspector.get_layer_information(
+                    layer_idx, trt.LayerInformationFormat.ONELINE)
+                print(layer_info)
+
+        if benchmark_profiler is not None and benchmark_profiler.is_recording_perf_profile:
+            perf_profile_data = self.decoder.profiler.results
+            if not perf_profile_data:
+                tensorrt_llm.logger.error("profiler data is empty")
+                return
+
+            ctx_layers = list()
+            generation_layers = list()
+            start = 0
+            ctx_iter_cnt = 0
+            generation_iter_cnt = 0
+
+            # split context/generations layer information
+            for idx, layer_info in enumerate(perf_profile_data):
+                if layer_info[0] == "step":
+                    if layer_info[1] == 0:
+                        ctx_layers.extend(perf_profile_data[start:idx])
+                        ctx_iter_cnt += 1
+                    else:
+                        generation_layers.extend(perf_profile_data[start:idx])
+                        generation_iter_cnt += 1
+                        start = idx + 1
+
+            # Reduce all data
+            def reduce_layer_data(layers):
+                layer_infos = dict()
+                for layer in layers:
+                    if layer[0] in layer_infos:
+                        layer_infos[layer[0]] += layer[1]
+                    else:
+                        layer_infos[layer[0]] = layer[1]
+                return layer_infos
+
+            # Dump kernel data
+            def dump_kernel_profile_table(name: str, profile_data: list,
+                                          iter_cnt: int):
+                table = pd.DataFrame(
+                    [[k, '{:0.3f}'.format(v)] for k, v in profile_data.items()],
+                    columns=['{} Phase LayerName'.format(name), 'times (ms)'])
+
+                def ljust(s):
+                    s = s.astype(str).str.strip()
+                    return s.str.ljust(s.str.len().max())
+
+                print(table.apply(ljust).to_string(index=False, justify='left'))
+                print("{} phase step iter: {}".format(name, iter_cnt))
+
+            ctx_layer_infos = reduce_layer_data(ctx_layers)
+            generation_layer_infos = reduce_layer_data(generation_layers)
+            dump_kernel_profile_table("Context", ctx_layer_infos, ctx_iter_cnt)
+            dump_kernel_profile_table("Generation", generation_layer_infos,
+                                      generation_iter_cnt)

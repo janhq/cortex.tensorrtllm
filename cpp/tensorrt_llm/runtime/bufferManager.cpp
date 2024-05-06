@@ -27,8 +27,9 @@ using namespace tensorrt_llm::runtime;
 
 namespace tc = tensorrt_llm::common;
 
-BufferManager::BufferManager(CudaStreamPtr stream)
+BufferManager::BufferManager(CudaStreamPtr stream, bool trimPool)
     : mStream{std::move(stream)}
+    , mTrimPool{trimPool}
 {
     TLLM_CHECK_WITH_INFO(static_cast<bool>(mStream), "Undefined CUDA stream");
     thread_local static std::unordered_set<int> initializedDevices(8);
@@ -48,6 +49,16 @@ BufferManager::IBufferPtr BufferManager::gpu(std::size_t size, nvinfer1::DataTyp
 BufferManager::ITensorPtr BufferManager::gpu(nvinfer1::Dims dims, nvinfer1::DataType type) const
 {
     return std::make_unique<DeviceTensor>(dims, type, CudaAllocatorAsync{mStream});
+}
+
+BufferManager::IBufferPtr BufferManager::gpuSync(std::size_t size, nvinfer1::DataType type)
+{
+    return std::make_unique<StaticDeviceBuffer>(size, type, CudaAllocator{});
+}
+
+BufferManager::ITensorPtr BufferManager::gpuSync(nvinfer1::Dims dims, nvinfer1::DataType type)
+{
+    return std::make_unique<StaticDeviceTensor>(dims, type, CudaAllocator{});
 }
 
 BufferManager::IBufferPtr BufferManager::cpu(std::size_t size, nvinfer1::DataType type)
@@ -92,13 +103,18 @@ BufferManager::ITensorPtr BufferManager::managed(nvinfer1::Dims dims, nvinfer1::
 
 void BufferManager::setZero(IBuffer& buffer) const
 {
+    setMem(buffer, 0);
+}
+
+void BufferManager::setMem(IBuffer& buffer, int32_t value) const
+{
     if (buffer.getMemoryType() == MemoryType::kGPU)
     {
-        TLLM_CUDA_CHECK(cudaMemsetAsync(buffer.data(), 0, buffer.getSizeInBytes(), mStream->get()));
+        TLLM_CUDA_CHECK(cudaMemsetAsync(buffer.data(), value, buffer.getSizeInBytes(), mStream->get()));
     }
     else
     {
-        std::memset(buffer.data(), 0, buffer.getSizeInBytes());
+        std::memset(buffer.data(), value, buffer.getSizeInBytes());
     }
 }
 

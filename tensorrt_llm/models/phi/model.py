@@ -12,13 +12,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from typing import Optional
+
+from transformers import AutoModelForCausalLM
+
 from ..._utils import pad_vocab_size
 from ...functional import PositionEmbeddingType, Tensor
 from ...layers import (MLP, Attention, AttentionMaskType, Embedding, LayerNorm,
                        ParallelLMHead)
 from ...module import Module
 from ..modeling_utils import (DecoderLayerList, DecoderModelForCausalLM,
-                              PretrainedConfig)
+                              PretrainedConfig, save_checkpoint)
+from .convert import convert_hf_config, convert_hf_weights
 
 
 class PhiDecoderLayer(Module):
@@ -93,19 +98,9 @@ class PhiModel(Module):
 
     def __init__(self, config: PretrainedConfig):
         super().__init__()
-        mapping = config.mapping
-        use_parallel_embedding = False
-        embedding_sharding_dim = 0
-        self.use_prompt_tuning = config.use_prompt_tuning
-
-        self.vocab_embedding = Embedding(
-            num_embeddings=config.vocab_size,
-            embedding_dim=config.hidden_size,
-            dtype=config.dtype,
-            tp_size=mapping.tp_size if use_parallel_embedding else 1,
-            tp_group=mapping.tp_group if use_parallel_embedding else None,
-            sharding_dim=embedding_sharding_dim,
-            tp_rank=mapping.rank)
+        self.vocab_embedding = Embedding(num_embeddings=config.vocab_size,
+                                         embedding_dim=config.hidden_size,
+                                         dtype=config.dtype)
 
         self.layers = DecoderLayerList(PhiDecoderLayer, config)
         self.ln_f = LayerNorm(normalized_shape=config.hidden_size,
@@ -124,7 +119,7 @@ class PhiModel(Module):
         prompt_vocab_size=None,
     ):
         args = [prompt_embedding_table, prompt_tasks, prompt_vocab_size
-                ] if self.use_prompt_tuning else []
+                ] if prompt_embedding_table is not None else []
         hidden_states = self.vocab_embedding(input_ids, *args)
 
         hidden_states = self.layers(
@@ -152,21 +147,36 @@ class PhiForCausalLM(DecoderModelForCausalLM):
         vocab_size_padded = pad_vocab_size(config.vocab_size,
                                            config.mapping.tp_size)
 
-        share_weight = None
-        if config.share_embedding_table:
-            share_weight = transformer.vocab_embedding.weight
-
         lm_head = ParallelLMHead(config.hidden_size,
                                  vocab_size_padded,
                                  bias=True,
                                  dtype=config.dtype,
                                  tp_group=config.mapping.tp_group,
                                  tp_size=config.mapping.tp_size,
-                                 gather_output=True,
-                                 share_weight=share_weight)
+                                 gather_output=True)
 
         super().__init__(config, transformer, lm_head)
 
     def check_config(self, config):
         config.set_if_not_exist('partial_rotary_factor', 0.4)
         config.set_if_not_exist('rotary_base', 10000.0)
+
+    @classmethod
+    def convert_hf_checkpoint(cls,
+                              hf_model_dir: str,
+                              dtype: Optional[str] = "float16",
+                              output_dir: Optional[str] = None,
+                              **kwargs):
+        '''
+        Convert Huggingface checkpoint to TRT-LLM checkpoint
+        '''
+        hf_model = AutoModelForCausalLM.from_pretrained(hf_model_dir,
+                                                        torch_dtype="auto",
+                                                        trust_remote_code=True)
+        config = convert_hf_config(hf_model.config, dtype=dtype, **kwargs)
+        weights = convert_hf_weights(hf_model, dtype=dtype, **kwargs)
+
+        if output_dir:
+            save_checkpoint(output_dir, config=config, weights=weights)
+
+        return {"weights": weights, "config": config}

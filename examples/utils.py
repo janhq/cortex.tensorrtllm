@@ -21,13 +21,12 @@ from transformers import AutoTokenizer, T5Tokenizer
 
 from tensorrt_llm.builder import get_engine_version
 
-# TODO(enweiz): Update for refactored models
 DEFAULT_HF_MODEL_DIRS = {
     'BaichuanForCausalLM': 'baichuan-inc/Baichuan-13B-Chat',
     'BloomForCausalLM': 'bigscience/bloom-560m',
     'ChatGLMForCausalLM': 'THUDM/chatglm3-6b',
     'FalconForCausalLM': 'tiiuae/falcon-rw-1b',
-    'gpt': 'gpt2-medium',
+    'GPTForCausalLM': 'gpt2-medium',
     'GPTJForCausalLM': 'EleutherAI/gpt-j-6b',
     'GPTNeoXForCausalLM': 'EleutherAI/gpt-neox-20b',
     'InternLMForCausalLM': 'internlm/internlm-chat-7b',
@@ -35,13 +34,13 @@ DEFAULT_HF_MODEL_DIRS = {
     'MPTForCausalLM': 'mosaicml/mpt-7b',
     'PhiForCausalLM': 'microsoft/phi-2',
     'OPTForCausalLM': 'facebook/opt-350m',
-    'qwen': 'Qwen/Qwen-7B',
+    'QWenForCausalLM': 'Qwen/Qwen-7B',
 }
 
 DEFAULT_PROMPT_TEMPLATES = {
     'InternLMForCausalLM':
     "<|User|>:{input_text}<eoh>\n<|Bot|>:",
-    'qwen':
+    'QWenForCausalLM':
     "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{input_text}<|im_end|>\n<|im_start|>assistant\n",
 }
 
@@ -59,6 +58,8 @@ def read_model_name(engine_dir: str):
     model_version = None
     if model_arch == 'ChatGLMForCausalLM':
         model_version = config['pretrained_config']['chatglm_version']
+    if model_arch == 'QWenForCausalLM':
+        model_version = config['pretrained_config']['qwen_type']
     return model_arch, model_version
 
 
@@ -73,7 +74,7 @@ def throttle_generator(generator, stream_interval):
 
 def load_tokenizer(tokenizer_dir: Optional[str] = None,
                    vocab_file: Optional[str] = None,
-                   model_name: str = 'gpt',
+                   model_name: str = 'GPTForCausalLM',
                    model_version: Optional[str] = None,
                    tokenizer_type: Optional[str] = None):
     if vocab_file is None:
@@ -88,7 +89,7 @@ def load_tokenizer(tokenizer_dir: Optional[str] = None,
                                                   trust_remote_code=True,
                                                   tokenizer_type=tokenizer_type,
                                                   use_fast=use_fast)
-    elif model_name == 'GemmaForCausalLM':
+    elif model_name == 'GemmaForCausalLM' or model_name == 'RecurrentGemmaForCausalLM':
         from transformers import GemmaTokenizer
 
         # Initialize tokenizer from vocab file.
@@ -103,15 +104,11 @@ def load_tokenizer(tokenizer_dir: Optional[str] = None,
                                 truncation_side='left',
                                 legacy=False)
 
-    if model_name == 'qwen':
+    if model_name == 'QWenForCausalLM' and model_version == 'qwen':
         with open(Path(tokenizer_dir) / "generation_config.json") as f:
             gen_config = json.load(f)
-        chat_format = gen_config['chat_format']
-        if chat_format == 'raw' or chat_format == 'chatml':
-            pad_id = gen_config['pad_token_id']
-            end_id = gen_config['eos_token_id']
-        else:
-            raise Exception(f"unknown chat format: {chat_format}")
+        pad_id = gen_config['pad_token_id']
+        end_id = gen_config['eos_token_id']
     elif model_name == 'ChatGLMForCausalLM' and model_version == 'glm':
         pad_id = tokenizer.pad_token_id
         end_id = tokenizer.eop_token_id

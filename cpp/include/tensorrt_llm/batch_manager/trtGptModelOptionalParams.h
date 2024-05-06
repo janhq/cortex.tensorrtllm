@@ -18,9 +18,11 @@
 #pragma once
 
 #include "tensorrt_llm/batch_manager/kvCacheConfig.h"
+#include "tensorrt_llm/batch_manager/peftCacheManagerConfig.h"
 #include "tensorrt_llm/executor/executor.h"
 #include "tensorrt_llm/runtime/common.h"
 #include "tensorrt_llm/runtime/decodingMode.h"
+#include "tensorrt_llm/runtime/medusaModule.h"
 
 #include <optional>
 #include <vector>
@@ -38,21 +40,28 @@ public:
     explicit TrtGptModelOptionalParams(KvCacheConfig const& kvCacheConfig = KvCacheConfig{},
         bool enableTrtOverlap = false, std::optional<std::vector<SizeType>> const& deviceIds = std::nullopt,
         bool normalizeLogProbs = true, bool enableChunkedContext = false,
-        std::optional<runtime::DecodingMode> const& decodingMode = std::nullopt)
+        std::optional<runtime::DecodingMode> const& decodingMode = std::nullopt,
+        PeftCacheManagerConfig const& peftCacheManagerConfig = PeftCacheManagerConfig{},
+        std::optional<runtime::MedusaModule::MedusaChoices> const& medusaChoices = std::nullopt)
         : kvCacheConfig{kvCacheConfig}
         , enableTrtOverlap{enableTrtOverlap}
         , deviceIds(deviceIds)
         , normalizeLogProbs{normalizeLogProbs}
         , enableChunkedContext{enableChunkedContext}
         , decodingMode{decodingMode}
+        , peftCacheManagerConfig(peftCacheManagerConfig)
+        , medusaChoices(medusaChoices)
     {
     }
 
     explicit TrtGptModelOptionalParams(executor::ExecutorConfig const& executorConfig)
-        : TrtGptModelOptionalParams(KvCacheConfig(executorConfig.getKvCacheConfig()),
-            executorConfig.getEnableTrtOverlap(),
+        : TrtGptModelOptionalParams(KvCacheConfig(executorConfig.getKvCacheConfig()), false,
             executorConfig.getParallelConfig().value_or(executor::ParallelConfig()).getDeviceIds(),
-            executorConfig.getNormalizeLogProbs(), executorConfig.getEnableChunkedContext())
+            executorConfig.getNormalizeLogProbs(), executorConfig.getEnableChunkedContext(),
+            runtime::DecodingMode::fromExecutor(
+                executorConfig.getDecodingMode().value_or(executor::DecodingMode::kNONE)),
+            PeftCacheManagerConfig(executorConfig.getPeftCacheConfig().value_or(executor::PeftCacheConfig())),
+            executorConfig.getMedusaChoices())
     {
     }
 
@@ -63,6 +72,8 @@ public:
             && enableChunkedContext == other.enableChunkedContext && decodingMode == other.decodingMode;
     }
 
+    friend std::ostream& operator<<(std::ostream& os, TrtGptModelOptionalParams const& self);
+
     KvCacheConfig kvCacheConfig;
 
     bool enableTrtOverlap;
@@ -70,6 +81,8 @@ public:
     bool normalizeLogProbs;
     bool enableChunkedContext;
     std::optional<runtime::DecodingMode> decodingMode;
+    PeftCacheManagerConfig peftCacheManagerConfig;
+    std::optional<runtime::MedusaModule::MedusaChoices> medusaChoices;
 };
 
 } // namespace tensorrt_llm::batch_manager

@@ -1,9 +1,9 @@
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
 
-import numpy as np
 import requests
 
 # isort: off
@@ -19,7 +19,6 @@ from transformers import (AutoConfig, AutoProcessor, AutoTokenizer,
 import tensorrt_llm
 import tensorrt_llm.profiler as profiler
 from tensorrt_llm import logger
-from tensorrt_llm._utils import torch_to_numpy
 from tensorrt_llm.runtime import ModelRunner, Session, TensorInfo
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -43,16 +42,6 @@ def parse_arguments():
                         type=str,
                         default=None,
                         help="Directory containing tokenizer")
-    parser.add_argument(
-        '--decoder_llm',
-        action='store_true',
-        help='Whether LLM is decoder-only or an encoder-decoder variant?')
-    parser.add_argument('--blip2_encoder',
-                        action='store_true',
-                        help='Whether visual encoder is a BLIP2 model')
-    parser.add_argument('--nougat',
-                        action='store_true',
-                        help='Run nougat pipeline')
     parser.add_argument('--input_text',
                         type=str,
                         default=None,
@@ -83,25 +72,36 @@ def trt_dtype_to_torch(dtype):
         raise TypeError("%s is not supported" % dtype)
 
 
-class MultiModalModel:
+class MultimodalModelRunner:
 
     def __init__(self, args):
         self.args = args
 
-        runtime_rank = tensorrt_llm.mpi_rank()
-        device_id = runtime_rank % torch.cuda.device_count()
+        self.runtime_rank = tensorrt_llm.mpi_rank()
+        device_id = self.runtime_rank % torch.cuda.device_count()
         torch.cuda.set_device(device_id)
         self.device = "cuda:%d" % (device_id)
 
         self.stream = torch.cuda.Stream(torch.cuda.current_device())
         torch.cuda.set_stream(self.stream)
 
+        # parse model type from visual engine config
+        with open(os.path.join(self.args.visual_engine_dir, "config.json"),
+                  "r") as f:
+            config = json.load(f)
+        self.model_type = config['builder_config']['model_type']
+        self.decoder_llm = not (
+            't5' in self.model_type or 'nougat' in self.model_type
+        )  # BLIP2-T5 and Nougat are using encoder-decoder models as LLMs
+
+        self.profiling_iterations = 20
+
         self.init_image_encoder()
         self.init_tokenizer()
         self.init_llm()
 
     def init_tokenizer(self):
-        if self.args.nougat:
+        if self.model_type == 'nougat':
             self.tokenizer = NougatTokenizerFast.from_pretrained(
                 self.args.hf_model_dir)
         else:
@@ -109,7 +109,6 @@ class MultiModalModel:
                 self.args.hf_model_dir, use_fast=False, use_legacy=False)
 
         self.tokenizer.padding_side = "right"
-        self.tokenizer.pad_token = self.tokenizer.eos_token
 
     def init_image_encoder(self):
         vision_encoder_path = os.path.join(self.args.visual_engine_dir,
@@ -122,7 +121,7 @@ class MultiModalModel:
             engine_buffer)
 
     def init_llm(self):
-        if self.args.decoder_llm:
+        if self.decoder_llm:
             self.model = ModelRunner.from_dir(self.args.llm_engine_dir,
                                               rank=tensorrt_llm.mpi_rank(),
                                               debug_mode=False,
@@ -133,11 +132,11 @@ class MultiModalModel:
             self.model = TRTLLMEncDecModel.from_engine(
                 os.path.basename(self.args.hf_model_dir),
                 self.args.llm_engine_dir,
-                skip_encoder=self.args.nougat,
+                skip_encoder=(self.model_type == 'nougat'),
                 debug_mode=False,
                 stream=self.stream)
 
-            if args.nougat:
+            if self.model_type == 'nougat':
                 self.model_config = self.model.decoder_model_config
                 self.runtime_mapping = self.model.decoder_runtime_mapping
             else:
@@ -171,34 +170,30 @@ class MultiModalModel:
         input_ids, ptuning_args = self.setup_fake_prompts(
             visual_features, pre_input_ids, post_input_ids, input_lengths)
 
-        if warmup and self.args.decoder_llm and tensorrt_llm.mpi_rank() == 0:
-            prompt_table = ptuning_args[0]
-            prompt_table = torch.stack([prompt_table])
-            np.save('prompt_table.npy', torch_to_numpy(prompt_table))
         if warmup: return None
 
         profiler.start("LLM")
-        if self.args.decoder_llm:
+        if self.decoder_llm:
             end_id = self.tokenizer.eos_token_id
-            if 'opt' in self.args.hf_model_dir and self.args.blip2_encoder:
+            if 'opt' in self.model_type and 'blip2' in self.model_type:
                 # For BLIP2-OPT, model outputs a "\n" at the end.
                 # we avoid it by using newline as the end token
                 end_id = self.tokenizer.encode("\n",
                                                add_special_tokens=False)[0]
 
-            output_ids = self.model.generate(
-                input_ids,
-                sampling_config=None,
-                prompt_table_path='prompt_table.npy',
-                max_new_tokens=max_new_tokens,
-                end_id=end_id,
-                pad_id=self.tokenizer.pad_token_id,
-                top_k=self.args.top_k,
-                num_beams=self.args.num_beams,
-                output_sequence_lengths=False,
-                return_dict=False)
+            ptuning_args[0] = torch.stack([ptuning_args[0]])
+            output_ids = self.model.generate(input_ids,
+                                             sampling_config=None,
+                                             prompt_table=ptuning_args[0],
+                                             max_new_tokens=max_new_tokens,
+                                             end_id=end_id,
+                                             pad_id=self.tokenizer.pad_token_id,
+                                             top_k=self.args.top_k,
+                                             num_beams=self.args.num_beams,
+                                             output_sequence_lengths=False,
+                                             return_dict=False)
         else:
-            if args.nougat:
+            if self.model_type == 'nougat':
                 # Trim encoder input_ids to match visual features shape
                 ids_shape = (self.args.batch_size, visual_features.shape[1])
                 input_ids = torch.zeros(ids_shape, dtype=torch.int32)
@@ -277,7 +272,7 @@ class MultiModalModel:
             input_ids = [fake_prompt_id, pre_input_ids]
         input_ids = torch.cat(input_ids, dim=1).contiguous().to(torch.int32)
 
-        if self.args.decoder_llm or self.runtime_mapping.is_first_pp_rank():
+        if self.decoder_llm or self.runtime_mapping.is_first_pp_rank():
             ptuning_args = self.ptuning_setup(visual_features, input_ids,
                                               input_lengths)
         else:
@@ -309,146 +304,149 @@ class MultiModalModel:
         if self.model_config.remove_input_padding:
             tasks = torch.zeros([torch.sum(input_lengths)],
                                 dtype=torch.int32).cuda()
-            if args.decoder_llm: tasks = tasks.unsqueeze(0)
+            if self.decoder_llm: tasks = tasks.unsqueeze(0)
         else:
             tasks = torch.zeros(input_ids.shape, dtype=torch.int32).cuda()
 
         return [prompt_table, tasks, task_vocab_size]
 
-
-def load_test_image(model_name):
-    if "vila" in model_name:
-        img_url = 'https://github.com/Efficient-Large-Model/VILA/raw/main/demo_images/av.png'
-        image = Image.open(requests.get(img_url,
-                                        stream=True).raw).convert('RGB')
-    elif "nougat" in model_name:
-        filepath = hf_hub_download(
-            repo_id="hf-internal-testing/fixtures_docvqa",
-            filename="nougat_paper.png",
-            repo_type="dataset")
-        image = Image.open(filepath)
-    else:
-        img_url = 'https://storage.googleapis.com/sfr-vision-language-research/LAVIS/assets/merlion.png'
-        image = Image.open(requests.get(img_url,
-                                        stream=True).raw).convert('RGB')
-
-    return image
-
-
-if __name__ == '__main__':
-    os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    args = parse_arguments()
-    tensorrt_llm.logger.set_level(args.log_level)
-    runtime_rank = tensorrt_llm.mpi_rank()
-
-    image = load_test_image(args.hf_model_dir)
-    if args.blip2_encoder:
-        if 'opt-2.7b' in args.hf_model_dir:
-            model_type = 'Salesforce/blip2-opt-2.7b'
+    def load_test_image(self):
+        if "vila" in self.model_type:
+            img_url = 'https://github.com/Efficient-Large-Model/VILA/raw/main/demo_images/av.png'
+            image = Image.open(requests.get(img_url,
+                                            stream=True).raw).convert('RGB')
+        elif "nougat" in self.model_type:
+            filepath = hf_hub_download(
+                repo_id="hf-internal-testing/fixtures_docvqa",
+                filename="nougat_paper.png",
+                repo_type="dataset")
+            image = Image.open(filepath)
         else:
-            model_type = 'Salesforce/blip2-flan-t5-xl'
+            img_url = 'https://storage.googleapis.com/sfr-vision-language-research/LAVIS/assets/merlion.png'
+            image = Image.open(requests.get(img_url,
+                                            stream=True).raw).convert('RGB')
 
-        if args.input_text is None:
-            args.input_text = "Question: which city is this? Answer:"
+        return image
 
-        processor = Blip2Processor.from_pretrained(model_type)
-        image = processor(image, args.input_text,
-                          return_tensors="pt")['pixel_values']
+    def setup_inputs(self, input_text, raw_image):
+        if 'blip2' in self.model_type:
+            processor = Blip2Processor.from_pretrained(self.model_type)
+            image = processor(raw_image, input_text,
+                              return_tensors="pt")['pixel_values']
 
-        pre_prompt = args.input_text
-        post_prompt = None
-    elif args.nougat:
-        processor = NougatProcessor.from_pretrained(args.hf_model_dir)
-        image = processor(image, return_tensors="pt")['pixel_values']
+            if input_text is None:
+                input_text = "Question: which city is this? Answer:"
 
-        # Nougat doesn't need text prompt (mBART use single token to start generation), just leave a dummy one here
-        if args.input_text is None:
-            args.input_text = "Question: which city is this? Answer:"
+            pre_prompt = input_text
+            post_prompt = None
+        elif 'nougat' in self.model_type:
+            processor = NougatProcessor.from_pretrained(self.args.hf_model_dir)
+            image = processor(raw_image, return_tensors="pt")['pixel_values']
 
-        pre_prompt = args.input_text
-        post_prompt = None
-    else:
-        # LLaVA and VILA
-        if "llava" in args.hf_model_dir:
-            pre_prompt = "USER:\n"
-            if args.input_text is None:
-                args.input_text = "Question: which city is this? Answer:"
-        elif "vila" in args.hf_model_dir:
-            pre_prompt = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: "
-            if args.input_text is None:
-                args.input_text = "Please describe the traffic condition."
-        post_prompt = args.input_text + " ASSISTANT:"
+            # Nougat doesn't need text prompt (mBART use single token to start generation), just leave a dummy one here
+            if input_text is None:
+                input_text = "Question: which city is this? Answer:"
 
-        processor = AutoProcessor.from_pretrained(args.hf_model_dir)
-        image = processor(text=args.input_text,
-                          images=image,
-                          return_tensors="pt")['pixel_values']
+            pre_prompt = input_text
+            post_prompt = None
+        elif 'llava' in self.model_type or 'vila' in self.model_type:
+            # LLaVA and VILA
+            if self.model_type == "llava":
+                pre_prompt = "USER:\n"
+                if input_text is None:
+                    input_text = "Question: which city is this? Answer:"
+            elif self.model_type == "vila":
+                pre_prompt = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: "
+                if input_text is None:
+                    input_text = "Please describe the traffic condition."
+            post_prompt = input_text + " ASSISTANT:"
 
-    # Repeat inputs to match batch size
-    pre_prompt = [pre_prompt] * args.batch_size
-    post_prompt = [post_prompt] * args.batch_size
-    image = image.expand(args.batch_size, -1, -1, -1).contiguous()
+            if self.model_type == "vila":
+                sys.path.append(self.args.hf_model_dir + "/../VILA")
+                from llava.model import LlavaLlamaForCausalLM
+                model = LlavaLlamaForCausalLM.from_pretrained(
+                    self.args.hf_model_dir, torch_dtype=torch.float16)
+                vision_tower = model.get_vision_tower()
+                image_processor = vision_tower.image_processor
+                image = image_processor(images=raw_image,
+                                        return_tensors="pt")['pixel_values']
+            else:
+                processor = AutoProcessor.from_pretrained(
+                    self.args.hf_model_dir)
+                image = processor(text=input_text,
+                                  images=raw_image,
+                                  return_tensors="pt")['pixel_values']
 
-    model = MultiModalModel(args)
-    image = image.to(model.device)
+        # Repeat inputs to match batch size
+        pre_prompt = [pre_prompt] * self.args.batch_size
+        post_prompt = [post_prompt] * self.args.batch_size
+        image = image.expand(self.args.batch_size, -1, -1, -1).contiguous()
+        image = image.to(self.device)
 
-    # Generate decoder_input_ids for enc-dec models
-    # Custom prompts can be added as:
-    # decoder_input_ids = model.tokenizer(decoder_prompt).input_ids
-    if args.decoder_llm:
-        decoder_input_ids = None
-    else:
-        config = AutoConfig.from_pretrained(args.hf_model_dir)
-        decoder_start_id = config.decoder_start_token_id  # T5
-        if decoder_start_id is None:
-            decoder_start_id = config.decoder.bos_token_id  # Nougat
+        # Generate decoder_input_ids for enc-dec models
+        # Custom prompts can be added as:
+        # decoder_input_ids = model.tokenizer(decoder_prompt).input_ids
+        if self.decoder_llm:
+            decoder_input_ids = None
+        else:
+            config = AutoConfig.from_pretrained(args.hf_model_dir)
+            decoder_start_id = config.decoder_start_token_id  # T5
+            if decoder_start_id is None:
+                decoder_start_id = config.decoder.bos_token_id  # Nougat
 
-        decoder_input_ids = torch.IntTensor([[decoder_start_id]])
-        decoder_input_ids = decoder_input_ids.repeat((args.batch_size, 1))
+            decoder_input_ids = torch.IntTensor([[decoder_start_id]])
+            decoder_input_ids = decoder_input_ids.repeat((args.batch_size, 1))
 
-    model.generate(pre_prompt,
-                   post_prompt,
-                   image,
-                   decoder_input_ids,
-                   args.max_new_tokens,
-                   warmup=True)
-    tensorrt_llm.mpi_barrier()
+        return input_text, pre_prompt, post_prompt, image, decoder_input_ids
 
-    num_iters = 20 if args.run_profiling else 1
-    for _ in range(num_iters):
-        stripped_text = model.generate(pre_prompt,
-                                       post_prompt,
-                                       image,
-                                       decoder_input_ids,
-                                       args.max_new_tokens,
-                                       warmup=False)
+    def run(self, input_text, input_image, max_new_tokens):
+        input_text, pre_prompt, post_prompt, processed_image, decoder_input_ids = model.setup_inputs(
+            input_text, raw_image)
 
-    if runtime_rank == 0:
+        model.generate(pre_prompt,
+                       post_prompt,
+                       processed_image,
+                       decoder_input_ids,
+                       max_new_tokens,
+                       warmup=True)
+        num_iters = self.profiling_iterations if self.args.run_profiling else 1
+        for _ in range(num_iters):
+            output_text = model.generate(pre_prompt,
+                                         post_prompt,
+                                         processed_image,
+                                         decoder_input_ids,
+                                         max_new_tokens,
+                                         warmup=False)
+        if self.runtime_rank == 0:
+            self.print_result(input_text, output_text)
+        return output_text
+
+    def print_result(self, input_text, output_text):
         logger.info("---------------------------------------------------------")
-        if not args.nougat:
-            logger.info(f"\n[Q] {args.input_text}")
-        logger.info(f"\n[A] {stripped_text[0]}")
+        if self.model_type != 'nougat':
+            logger.info(f"\n[Q] {input_text}")
+        logger.info(f"\n[A] {output_text[0]}")
 
         if args.num_beams == 1:
-            output_ids = model.tokenizer(stripped_text[0][0],
-                                         add_special_tokens=False)['input_ids']
+            output_ids = self.tokenizer(output_text[0][0],
+                                        add_special_tokens=False)['input_ids']
             logger.info(f"Generated {len(output_ids)} tokens")
 
-        if args.check_accuracy:
-            for i in range(args.batch_size - 1):
-                if not (stripped_text[i] == stripped_text[i + 1]):
+        if self.args.check_accuracy:
+            for i in range(self.args.batch_size - 1):
+                if not (output_text[i] == output_text[i + 1]):
                     logger.info(f"Output {i} and {i + 1} do not match")
                     assert False
-            if not args.nougat:
-                if "vila" in args.hf_model_dir:
-                    assert stripped_text[0][0].lower(
+            if self.model_type != 'nougat':
+                if self.model_type == "vila":
+                    assert output_text[0][0].lower(
                     ) == 'the traffic condition in the image is quite busy, with multiple cars and bicycles sharing the road. there are also pedestrians walking on'
                 else:
-                    assert stripped_text[0][0].lower() == 'singapore'
+                    assert output_text[0][0].lower() == 'singapore'
 
-        if args.run_profiling:
+        if self.args.run_profiling:
             msec_per_batch = lambda name: 1000 * profiler.elapsed_time_in_sec(
-                name) / num_iters
+                name) / self.profiling_iterations
             logger.info('Latencies per batch (msec)')
             logger.info('TRT vision encoder: %.1f' % (msec_per_batch('Vision')))
             logger.info('TRTLLM LLM generate: %.1f' % (msec_per_batch('LLM')))
@@ -456,3 +454,14 @@ if __name__ == '__main__':
                         (msec_per_batch('Generate')))
 
         logger.info("---------------------------------------------------------")
+
+
+if __name__ == '__main__':
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    args = parse_arguments()
+    tensorrt_llm.logger.set_level(args.log_level)
+
+    model = MultimodalModelRunner(args)
+
+    raw_image = model.load_test_image()
+    text_output = model.run(args.input_text, raw_image, args.max_new_tokens)

@@ -29,6 +29,9 @@ from datasets import load_dataset
 from torch.utils.data import DataLoader
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+from ..logger import logger
+from .mode import QuantAlgo
+
 EMPTY_CFG = {
     "quant_cfg": {
         "*weight_quantizer": {
@@ -112,6 +115,7 @@ MODEL_NAME_PATTERN_MAP = {
     "ChatGLM": "chatglm",
     "QWen": "qwen",
     "Gemma": "gemma",
+    "MixtralForCausalLM": "llama",
 }
 
 
@@ -129,7 +133,7 @@ def get_tokenizer(ckpt_path, max_seq_length, model_type=None):
         tokenizer.eos_token = tokenizer.convert_ids_to_tokens(151643)
 
     # can't set attribute 'pad_token' for "<unk>"
-    if tokenizer.pad_token != "<unk>":
+    if tokenizer.pad_token != "<unk>":  # nosec B105
         tokenizer.pad_token = tokenizer.eos_token
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -223,6 +227,8 @@ def quantize_model(model, quant_cfg, calib_dataloader=None):
         """Adjusts weights and scaling factors based on selected algorithms."""
         for idx, data in enumerate(calib_dataloader):
             print(f"Calibrating batch {idx}")
+            # model might be mapped to different device because the device_map is auto
+            data = data.to(model.device)
             model(data)
 
     print("Starting quantization...")
@@ -242,7 +248,17 @@ def quantize_and_export(*, model_dir, dtype, device, qformat, kv_cache_dtype,
         Load model from the model_dir, call AMMO to quantize the model, and then export
         the quantized model as TRT-LLM checkpoint
     '''
-    from ammo.torch.export import export_model_config
+    try:
+        import ammo  # noqa
+    except ImportError as e:
+        logger.error(
+            "Failed to import ammo, pls check the AMMO installation. Currently it is known to be unsupported on Windows OS"
+        )
+        raise e
+    from ammo.torch.export import export_tensorrt_llm_checkpoint
+    from ammo.torch.export.tensorrt_llm_utils import MODEL_NAME_TO_HF_ARCH_MAP
+    MODEL_NAME_TO_HF_ARCH_MAP.update({"gpt2": "GPTForCausalLM"})
+
     if not torch.cuda.is_available():
         raise EnvironmentError("GPU is required for inference.")
 
@@ -297,8 +313,6 @@ def quantize_and_export(*, model_dir, dtype, device, qformat, kv_cache_dtype,
                     value.update({"num_bits": (4, 3)})  # type: ignore
             quant_cfg["quant_cfg"].update(KV_CACHE_CFG)  # type: ignore
 
-        print(quant_cfg)
-
         model = quantize_model(model, quant_cfg, calib_dataloader)
 
     with torch.inference_mode():
@@ -311,47 +325,93 @@ def quantize_and_export(*, model_dir, dtype, device, qformat, kv_cache_dtype,
         export_path = output_dir
         start_time = time.time()
 
-        if qformat == "int4_awq" and model_type == "qwen":
-            torch.save(model.state_dict(), export_path)
-        else:
-            export_npz = (model_type not in [
-                'gptj', 'falcon', 'chatglm', 'mpt', 'llama', 'baichuan', 'gemma'
-            ])
-            export_model_config(model,
-                                model_type,
-                                getattr(torch, dtype),
-                                export_dir=export_path,
-                                inference_tensor_parallel=tp_size,
-                                inference_pipeline_parallel=pp_size,
-                                export_tensorrt_llm_config=(not export_npz),
-                                export_npz=export_npz)
+        export_tensorrt_llm_checkpoint(model,
+                                       model_type,
+                                       getattr(torch, dtype),
+                                       export_dir=export_path,
+                                       inference_tensor_parallel=tp_size,
+                                       inference_pipeline_parallel=pp_size)
 
-            # Workaround for wo quantization
-            if qformat in ["int8_wo", "int4_wo", "full_prec"]:
+        with open(f"{export_path}/config.json", "r") as f:
+            tensorrt_llm_config = json.load(f)
+
+        # Workaround for wo quantization
+        if qformat in ["int8_wo", "int4_wo", "full_prec"]:
+            if qformat == "int8_wo":
+                tensorrt_llm_config["quantization"][
+                    "quant_algo"] = QuantAlgo.W8A16
+            elif qformat == "int4_wo":
+                tensorrt_llm_config["quantization"][
+                    "quant_algo"] = QuantAlgo.W4A16
+            else:
+                tensorrt_llm_config["quantization"]["quant_algo"] = None
+
+        # Workaround for MOE router quantization
+        if "moe_num_experts" in tensorrt_llm_config and qformat != "full_prec":
+            if "exclude_modules" not in tensorrt_llm_config["quantization"]:
+                # Append router and lm_head because we need both excluded
+                tensorrt_llm_config["quantization"]["exclude_modules"] = [
+                    "router", "lm_head"
+                ]
+            else:
+                tensorrt_llm_config["quantization"]["exclude_modules"].append(
+                    "router")
+
+        with open(f"{export_path}/config.json", "w") as f:
+            json.dump(tensorrt_llm_config, f, indent=4)
+
+        # Workaround for AMMO 0.9.x fp8_kv_cache knob issue
+        if qformat == 'fp8' and kv_cache_dtype is None:
+            with open(f"{export_path}/config.json", "r") as f:
+                tensorrt_llm_config = json.load(f)
+            tensorrt_llm_config["quantization"]["kv_cache_quant_algo"] = None
+            with open(f"{export_path}/config.json", "w") as f:
+                json.dump(tensorrt_llm_config, f, indent=4)
+
+        # Workaround for share_embedding_table
+        if pp_size == 1:
+            with safetensors.safe_open(f"{export_path}/rank0.safetensors",
+                                       framework='pt',
+                                       device='cpu') as f:
+                share_embedding_table = 'lm_head.weight' not in f.keys()
+            if share_embedding_table:
                 with open(f"{export_path}/config.json", "r") as f:
                     tensorrt_llm_config = json.load(f)
-                if qformat == "int8_wo":
-                    tensorrt_llm_config["quantization"]["quant_algo"] = 'W8A16'
-                elif qformat == "int4_wo":
-                    tensorrt_llm_config["quantization"]["quant_algo"] = 'W4A16'
-                else:
-                    tensorrt_llm_config["quantization"]["quant_algo"] = None
+                tensorrt_llm_config["share_embedding_table"] = True
                 with open(f"{export_path}/config.json", "w") as f:
                     json.dump(tensorrt_llm_config, f, indent=4)
 
-            # Workaround for share_embedding_table
-            if pp_size == 1:
-                with safetensors.safe_open(f"{export_path}/rank0.safetensors",
-                                           framework='pt',
-                                           device='cpu') as f:
-                    share_embedding_table = 'lm_head.weight' not in f.keys()
-                if share_embedding_table:
-                    with open(f"{export_path}/config.json", "r") as f:
-                        tensorrt_llm_config = json.load(f)
-                    tensorrt_llm_config["share_embedding_table"] = True
-                    with open(f"{export_path}/config.json", "w") as f:
-                        json.dump(tensorrt_llm_config, f, indent=4)
+        # Workaround for gpt2 position embedding
+        if model_type == 'gpt2':
+            for rank in range(tp_size):
+                weights = {}
+                with safetensors.safe_open(
+                        f"{export_path}/rank{rank}.safetensors",
+                        framework='pt',
+                        device='cpu') as f:
+                    for key in f.keys():
+                        weights[key] = f.get_tensor(key)
+                if 'transformer.positional_embedding.weight' in weights:
+                    weights[
+                        'transformer.position_embedding.weight'] = weights.pop(
+                            'transformer.positional_embedding.weight')
+                safetensors.torch.save_file(
+                    weights, f"{export_path}/rank{rank}.safetensors")
 
+        # Workaround for qwen version
+        if model_type == 'qwen':
+            with open(f"{export_path}/config.json", "r") as f:
+                tensorrt_llm_config = json.load(f)
+            qwen_config = AutoConfig.from_pretrained(model_dir,
+                                                     trust_remote_code=True)
+            tensorrt_llm_config["qwen_type"] = qwen_config.model_type
+            tensorrt_llm_config[
+                "intermediate_size"] = qwen_config.intermediate_size
+            with open(f"{export_path}/config.json", "w") as f:
+                json.dump(tensorrt_llm_config, f, indent=4)
+
+        torch.cuda.empty_cache(
+        )  # otherwise torch is keeping using GPU, other routine like build engine has less free GPU to use
         end_time = time.time()
         print(
             "Quantized model exported to {} \nTotal time used {:.2f} s.".format(

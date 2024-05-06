@@ -63,7 +63,7 @@ public:
         return shape;
     }
 
-    static std::vector<SizeType> makeShape(std::initializer_list<runtime::SizeType> sizes)
+    static std::vector<SizeType> makeShape(std::initializer_list<runtime::ITensor::DimType> sizes)
     {
         return shape(ITensor::makeShape(sizes));
     }
@@ -123,7 +123,7 @@ public:
         }
     }
 
-    static at::cuda::CUDAStream stream(runtime::CudaStream& cudaStream)
+    static at::cuda::CUDAStream stream(runtime::CudaStream const& cudaStream)
     {
         return at::cuda::getStreamFromExternal(cudaStream.get(), static_cast<at::DeviceIndex>(cudaStream.getDevice()));
     }

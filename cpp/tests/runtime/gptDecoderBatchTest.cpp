@@ -20,7 +20,7 @@
 #include "tensorrt_llm/common/memoryUtils.h"
 #include "tensorrt_llm/runtime/bufferManager.h"
 #include "tensorrt_llm/runtime/gptDecoderBatch.h"
-#include "tensorrt_llm/runtime/gptModelConfig.h"
+#include "tensorrt_llm/runtime/modelConfig.h"
 #include "tensorrt_llm/runtime/runtimeKernels.h"
 #include "tensorrt_llm/runtime/worldConfig.h"
 
@@ -102,7 +102,7 @@ std::vector<decoder_batch::Request> prepareRequests(SizeType batchSize, SizeType
             std::vector<TokenIdType> draftTokens(generatedTokensPerSteps[batchIdx] - 1);
             std::fill(draftTokens.begin(), draftTokens.begin() + acceptedTokensPerStep[batchIdx], 1023);
             requests.back().draftTokens = manager.copyFrom(draftTokens, MemoryType::kGPU);
-            requests.back().generatedTokensPerStep = generatedTokensPerSteps[batchIdx];
+            requests.back().generatedTokensPerEngineStep = generatedTokensPerSteps[batchIdx];
         }
         requests.back().computeCumLogProbs = computeLogProbs;
         requests.back().computeLogProbs = computeLogProbs;
@@ -188,10 +188,11 @@ void testDecoder(nvinfer1::DataType const dtype, std::vector<SamplingConfig> con
     WorldConfig const worldConfig{tensorParallelism, pipelineParallelism, localRank};
 
     SizeType constexpr vocabSize{51200};
-    SizeType constexpr nbLayers{2};
+    SizeType constexpr nbAttentionLayers{2};
+    SizeType constexpr nbSsmLayers{0};
     SizeType constexpr nbHeads{16};
     SizeType constexpr hiddenSize{1024};
-    GptModelConfig modelConfig{vocabSize, nbLayers, nbHeads, hiddenSize, dtype};
+    ModelConfig modelConfig{vocabSize, nbAttentionLayers, nbSsmLayers, nbHeads, hiddenSize, dtype};
     modelConfig.useGptAttentionPlugin(false);
 
     auto streamPtr = std::make_shared<CudaStream>();
@@ -247,7 +248,7 @@ void testDecoder(nvinfer1::DataType const dtype, std::vector<SamplingConfig> con
     // set up decoder
     auto decoder = GptDecoderBatch(vocabSize, vocabSizePadded, streamPtr);
     decoder.setup(decodingMode, batchSize, maxBeamWidth, maxAttentionWindow, sinkTokenLength, maxSeqLength,
-        maxGeneratedTokensPerStep, false, dataType);
+        maxGeneratedTokensPerStep, false, dataType, modelConfig);
 
     std::vector<SizeType> seqSlots;
     std::vector<decoder_batch::Request> decoderRequests;
@@ -305,10 +306,11 @@ void testDecoderWavefront(nvinfer1::DataType const dtype, std::vector<SamplingCo
     WorldConfig const worldConfig{tensorParallelism, pipelineParallelism, localRank};
 
     SizeType constexpr vocabSize{51200};
-    SizeType constexpr nbLayers{2};
+    SizeType constexpr nbAttentionLayers{2};
+    SizeType constexpr nbSsmLayers{0};
     SizeType constexpr nbHeads{16};
     SizeType constexpr hiddenSize{1024};
-    GptModelConfig modelConfig{vocabSize, nbLayers, nbHeads, hiddenSize, dtype};
+    ModelConfig modelConfig{vocabSize, nbAttentionLayers, nbSsmLayers, nbHeads, hiddenSize, dtype};
     modelConfig.useGptAttentionPlugin(false);
 
     auto streamPtr = std::make_shared<CudaStream>();
@@ -364,7 +366,7 @@ void testDecoderWavefront(nvinfer1::DataType const dtype, std::vector<SamplingCo
     // set up decoder
     auto decoder = GptDecoderBatch(vocabSize, vocabSizePadded, streamPtr);
     decoder.setup(decodingMode, batchSize, maxBeamWidth, maxAttentionWindow, sinkTokenLength, maxSeqLength,
-        maxGeneratedTokensPerStep, false, dataType);
+        maxGeneratedTokensPerStep, false, dataType, modelConfig);
 
     std::vector<SizeType> expectedSteps(batchSize, 0);
     auto expectedLengths = tiledInputLengths;
@@ -427,10 +429,11 @@ void testDecoderDraft(nvinfer1::DataType const dtype, std::vector<SamplingConfig
     WorldConfig const worldConfig{tensorParallelism, pipelineParallelism, localRank};
 
     SizeType constexpr vocabSize{51200};
-    SizeType constexpr nbLayers{2};
+    SizeType constexpr nbAttentionLayers{2};
+    SizeType constexpr nbSsmLayers{0};
     SizeType constexpr nbHeads{16};
     SizeType constexpr hiddenSize{1024};
-    GptModelConfig modelConfig{vocabSize, nbLayers, nbHeads, hiddenSize, dtype};
+    ModelConfig modelConfig{vocabSize, nbAttentionLayers, nbSsmLayers, nbHeads, hiddenSize, dtype};
     modelConfig.useGptAttentionPlugin(false);
 
     auto streamPtr = std::make_shared<CudaStream>();
@@ -481,7 +484,7 @@ void testDecoderDraft(nvinfer1::DataType const dtype, std::vector<SamplingConfig
     auto decoder = GptDecoderBatch(vocabSize, vocabSizePadded, streamPtr);
     decoder.setup(decodingMode, batchSize, maxBeamWidth, maxAttentionWindow, sinkTokenLength, maxSeqLength,
         maxGeneratedTokensPerStep,
-        /* fused decoder */ true, dataType);
+        /* fused decoder */ true, dataType, modelConfig);
 
     std::vector<SizeType> seqSlots(batchSize);
     std::iota(seqSlots.begin(), seqSlots.end(), 0);

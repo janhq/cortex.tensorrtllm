@@ -15,6 +15,7 @@ from transformers import AutoConfig, AutoModelForCausalLM
 import tensorrt_llm
 from tensorrt_llm._utils import str_dtype_to_torch
 from tensorrt_llm.mapping import Mapping
+from tensorrt_llm.quantization import QuantAlgo
 
 
 def parse_arguments():
@@ -258,7 +259,8 @@ def load_from_gptq_gptneox(quant_ckpt_path,
         qweight_unpacked_int8 = unpack_int32_into_int8(
             qweight_int32.T).T.contiguous() - 8
         qweight_interleaved = preprocessor(packer(qweight_unpacked_int8),
-                                           torch.quint4x2).view(torch.float16)
+                                           torch.quint4x2,
+                                           torch.float16).view(torch.float16)
         # zeros = zeros * scales
         qzeros_unpacked_int32 = unpack_int32_into_int8(qzeros_int32)
         if not USE_UINT4_INPUT:
@@ -665,12 +667,12 @@ if __name__ == '__main__':
     plugin_weight_only_quant_type = None
     if args.use_weight_only and args.weight_only_precision == 'int8':
         plugin_weight_only_quant_type = torch.int8
-        quant_algo = 'W8A16'
+        quant_algo = QuantAlgo.W8A16
     elif args.use_weight_only and args.weight_only_precision == 'int4':
         plugin_weight_only_quant_type = torch.quint4x2
-        quant_algo = 'W4A16'
+        quant_algo = QuantAlgo.W4A16
     elif args.use_weight_only and args.weight_only_precision == 'int4_gptq':
-        quant_algo = 'W4A16_GPTQ'
+        quant_algo = QuantAlgo.W4A16_GPTQ
 
     hf_config = AutoConfig.from_pretrained(args.model_dir)
     hf_model = AutoModelForCausalLM.from_pretrained(args.model_dir,

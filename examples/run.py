@@ -46,7 +46,7 @@ def parse_arguments(args=None):
                         type=int,
                         default=None,
                         help='The sink token length.')
-    parser.add_argument('--log_level', type=str, default='error')
+    parser.add_argument('--log_level', type=str, default='warning')
     parser.add_argument('--engine_dir', type=str, default='engine_outputs')
     parser.add_argument('--use_py_session',
                         default=False,
@@ -221,13 +221,12 @@ def parse_input(tokenizer,
         elif input_file.endswith('.txt'):
             with open(input_file, 'r', encoding='utf-8',
                       errors='replace') as txt_file:
-                input_text = txt_file.read()
-                input_ids = tokenizer.encode(
+                input_text = txt_file.readlines()
+                batch_input_ids = tokenizer(
                     input_text,
                     add_special_tokens=add_special_tokens,
                     truncation=True,
-                    max_length=max_input_length)
-                batch_input_ids.append(input_ids)
+                    max_length=max_input_length)["input_ids"]
         else:
             print('Input file format not supported.')
             raise SystemExit
@@ -399,7 +398,7 @@ def main(args):
     if args.medusa_choices is not None:
         args.medusa_choices = ast.literal_eval(args.medusa_choices)
         assert args.use_py_session, "Medusa is only supported by py_session"
-        assert args.temperature == 0, "Medusa should use temperature == 0"
+        assert args.temperature == 1.0, "Medusa should use temperature == 1.0"
         assert args.num_beams == 1, "Medusa should use num_beams == 1"
         runner_kwargs.update(medusa_choices=args.medusa_choices)
     if not args.use_py_session:
@@ -435,7 +434,7 @@ def main(args):
             output_cum_log_probs=(args.output_cum_log_probs_npy != None),
             output_log_probs=(args.output_log_probs_npy != None),
             lora_uids=args.lora_task_uids,
-            prompt_table_path=args.prompt_table_path,
+            prompt_table=args.prompt_table_path,
             prompt_tasks=args.prompt_tasks,
             streaming=args.streaming,
             output_sequence_lengths=True,
@@ -519,7 +518,7 @@ def main(args):
                     stop_words_list=stop_words_list,
                     bad_words_list=bad_words_list,
                     lora_uids=args.lora_task_uids,
-                    prompt_table_path=args.prompt_table_path,
+                    prompt_table=args.prompt_table_path,
                     prompt_tasks=args.prompt_tasks,
                     streaming=args.streaming,
                     output_sequence_lengths=True,
@@ -547,7 +546,7 @@ def main(args):
                     stop_words_list=stop_words_list,
                     bad_words_list=bad_words_list,
                     lora_uids=args.lora_task_uids,
-                    prompt_table_path=args.prompt_table_path,
+                    prompt_table=args.prompt_table_path,
                     prompt_tasks=args.prompt_tasks,
                     streaming=args.streaming,
                     output_sequence_lengths=True,

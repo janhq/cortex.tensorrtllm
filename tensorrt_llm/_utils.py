@@ -13,11 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import copy
+import gc
 import json
 import math
 import struct
 import tarfile
 import weakref
+from dataclasses import asdict
+from enum import EnumMeta
 from functools import partial
 from pathlib import Path, PosixPath
 from typing import Any, Dict, List, Optional, Union
@@ -25,6 +28,8 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 import yaml
 from packaging import version
+
+from tensorrt_llm.bindings.BuildInfo import ENABLE_MULTI_DEVICE
 
 # isort: off
 import torch
@@ -49,11 +54,11 @@ def torch_to_numpy(x: torch.Tensor):
 
 def numpy_to_torch(x):
     if x.dtype == np_bfloat16:
-        return torch.tensor(x.view(np.int16)).view(torch.bfloat16)
+        return torch.from_numpy(x.view(np.int16)).view(torch.bfloat16)
     elif x.dtype == np_float8:
-        return torch.tensor(x.view(np.int8)).view(torch.float8_e4m3fn)
+        return torch.from_numpy(x.view(np.int8)).view(torch.float8_e4m3fn)
     else:
-        return torch.tensor(x)
+        return torch.from_numpy(x)
 
 
 def numpy_to_dtype(x, dtype: str):
@@ -69,12 +74,30 @@ def numpy_to_dtype(x, dtype: str):
 fp32_array = partial(np.array, dtype=np.float32)
 fp16_array = partial(np.array, dtype=np.float16)
 int32_array = partial(np.array, dtype=np.int32)
+int64_array = partial(np.array, dtype=np.int64)
+bool_array = partial(np.array, dtype=np.bool_)
+
+
+def dims_array(x):
+    is_int64_dims = True
+    try:
+        trt.Dims([np.iinfo(np.int64).max])
+    except TypeError:
+        is_int64_dims = False
+    return int64_array(x) if is_int64_dims else int32_array(x)
 
 
 def bf16_array(x):
     x = torch.tensor(x, dtype=torch.bfloat16)
     x = torch_to_numpy(x)
     return x
+
+
+def numpy_array(data, trt_dtype):
+    # convenient wrapper due to numpy not support bf16 yet
+    if trt_dtype == trt.bfloat16:
+        return bf16_array(data)
+    return np.array(data, trt_dtype_to_np(trt_dtype))
 
 
 def copy_torch_to_numpy(x: torch.Tensor, ndarray: np.array):
@@ -261,6 +284,23 @@ def is_same_dtype(type_a: Union[str, trt.DataType],
     return type_a == type_b
 
 
+_torch_to_trt_dtype_dict = {
+    torch.float16: trt.float16,
+    torch.float32: trt.float32,
+    torch.int64: trt.int64,
+    torch.int32: trt.int32,
+    torch.int8: trt.int8,
+    torch.bool: trt.bool,
+    torch.bfloat16: trt.bfloat16
+}
+
+
+def torch_dtype_to_trt(dtype):
+    ret = _torch_to_trt_dtype_dict.get(dtype)
+    assert ret is not None, f'Unsupported dtype: {dtype}'
+    return ret
+
+
 def dim_to_trt_axes(dim):
     """Converts torch dim, or tuple of dims to a tensorrt axes bitmask"""
     if not isinstance(dim, tuple):
@@ -301,11 +341,11 @@ def mpi_comm():
 
 
 def mpi_rank():
-    return mpi_comm().Get_rank()
+    return mpi_comm().Get_rank() if ENABLE_MULTI_DEVICE else 0
 
 
 def mpi_world_size():
-    return mpi_comm().Get_size()
+    return mpi_comm().Get_size() if ENABLE_MULTI_DEVICE else 1
 
 
 def mpi_barrier():
@@ -424,3 +464,55 @@ def set_obj_attrs(
         assert not hasattr(
             obj, key), (f"Overwriting existing tensor attribute: {key}")
         setattr(obj, key, value)
+
+
+def release_gc():
+    ''' Release memory allocated by PyTorch and Python garbage collector explicitly and immediately.
+    This could be used when some states might be kept in memory even after the variables are deleted.
+    '''
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+
+
+class DictConversion:
+
+    @classmethod
+    def from_dict(cls, config: Dict[str, Any]):
+        obj = cls()
+        fields = obj.__dataclass_fields__
+        for key, value in config.items():
+            assert hasattr(obj, key)
+            field_cls = fields[key].type
+            if (isinstance(field_cls, type)
+                    and issubclass(field_cls, DictConversion)
+                    and isinstance(value, dict)):
+                value = field_cls.from_dict(value)
+            setattr(obj, key, value)
+        return obj
+
+    def to_dict(self):
+        return asdict(self)
+
+    @classmethod
+    def from_json_file(cls, file):
+        with open(file) as f:
+            return cls.from_dict(json.load(f))
+
+    def set_defaults(self, **kwargs):
+        for key, default in kwargs.items():
+            value = getattr(self, key)
+            if (value is None
+                    or (isinstance(value, (list, dict)) and len(value) == 0)):
+                setattr(self, key, default)
+
+
+class BaseEnumMeta(EnumMeta):
+
+    def __contains__(cls, item):
+        try:
+            cls(item)
+        except ValueError:
+            return False
+        return True

@@ -17,7 +17,10 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 #ifdef ENABLE_FP8
@@ -26,6 +29,11 @@
 #ifdef ENABLE_BF16
 #include <cuda_bf16.h>
 #endif
+
+namespace tensorrt_llm::runtime
+{
+class CudaStream;
+} // namespace tensorrt_llm::runtime
 
 namespace tensorrt_llm::executor
 {
@@ -40,8 +48,13 @@ using TokenIdType = std::int32_t;
 using VecTokens = std::vector<TokenIdType>;
 using BeamTokens = std::vector<VecTokens>;
 using IdType = std::uint64_t;
+using IterationType = std::uint64_t;
 using RandomSeedType = std::uint64_t;
 using VecLogProbs = std::vector<FloatType>;
+using StreamPtr = std::shared_ptr<tensorrt_llm::runtime::CudaStream>;
+using LogitsPostProcessor = std::function<void(IdType, Tensor&, BeamTokens const&, StreamPtr&)>;
+using LogitsPostProcessorMap = std::unordered_map<std::string, LogitsPostProcessor>;
+using MedusaChoices = std::vector<std::vector<SizeType>>;
 
 enum class DataType
 {
@@ -142,16 +155,29 @@ enum class ModelType
     kDECODER_ONLY = 0,
 };
 
+/// @brief The batching type
 enum class BatchingType
 {
+    /// @brief STATIC refers to the traditional batching scheme with a batch of requests running in lockstep until the
+    /// full generation for all of them is complete. Requests in a batch are all padded up to the maximum input and
+    /// output sequence length of any member of the batch.
     kSTATIC = 0,
+
+    /// @brief INFLIGHT refers to a scheme where newly arrived requests are dynamically incorporated into the batch
+    /// under execution, and requests are returned as soon as the end condition is met without any padding.
     kINFLIGHT = 1,
-    kINFLIGHT_UNFUSED = 2,
 };
 
+/// @brief The policy used to select the subset of available requests in each iteration of the executor generation loop
 enum class SchedulerPolicy
 {
+    /// @brief MAX_UTILIZATION packs as many requests as the underlying TRT engine can support in any iteration of the
+    /// InflightBatching generation loop. While this is expected to maximize GPU throughput, it might require that some
+    /// requests be paused and restarted depending on peak KV cache memory availability.
     kMAX_UTILIZATION = 0,
+
+    /// @brief GUARANTEED_NO_EVICT uses KV cache more conservatively guaranteeing that a request, once started, will run
+    /// to completion without eviction.
     kGUARANTEED_NO_EVICT = 1,
 };
 
@@ -165,6 +191,134 @@ enum class CommunicationMode
     kLEADER, // With the leader mode, only the leader can enqueue requests. The requests will be
              // broadcasted to the workers. All participants can get response via awaitResponses. The leader is the
              // first participant in the provided participant IDS, or 0 if participant ID is not provided
+    kORCHESTRATOR, // With the orchestrator mode, only the orchestrator can enqueue requests and await responses. The
+                   // requests will be broadcasted to the workers. The orchestrator will spawn new processes for the
+                   // execution of the model
+};
+
+/// @brief Struct that holds the stats of a KV cache manager
+struct KvCacheStats
+{
+    /// @brief Max number of blocks
+    SizeType maxNumBlocks;
+    /// @brief Number of free blocks
+    SizeType freeNumBlocks;
+    /// @brief Number of used blocks
+    SizeType usedNumBlocks;
+    /// @brief Number of tokens per block
+    SizeType tokensPerBlock;
+};
+
+/// @brief Struct that holds the stats of static batching models for a single iteration
+struct StaticBatchingStats
+{
+    /// @brief Number of scheduled requests
+    SizeType numScheduledRequests;
+    /// @brief Number of requests in context stage
+    SizeType numContextRequests;
+    /// @brief Total number of context tokens in the iteration
+    SizeType numCtxTokens;
+    /// @brief Total number of tokens to generate in the iteration
+    SizeType numGenTokens;
+    /// @brief Total number of unused generation token slots
+    SizeType emptyGenSlots;
+};
+
+/// @brief Struct that holds the stats of inflight batching models for a single iteration
+struct InflightBatchingStats
+{
+    /// @brief Number of scheduled requests
+    SizeType numScheduledRequests;
+    /// @brief Number of requests in context stage
+    SizeType numContextRequests;
+    /// @brief Number of requests in generation stage
+    SizeType numGenRequests;
+    /// @brief Number of paused requests
+    SizeType numPausedRequests;
+    /// @brief Total number of context tokens in the iteration
+    SizeType numCtxTokens;
+    /// @brief Index of mirco batch
+    SizeType microBatchId;
+};
+
+/// @brief Struct that holds the stats of a single iteration
+struct IterationStats
+{
+    /// @brief Ending time of this iteration
+    std::string timestamp;
+    /// @brief Iteration id
+    IterationType iter;
+    /// @brief Number of active requests
+    SizeType numActiveRequests;
+    /// @brief Number of max active requests
+    SizeType maxNumActiveRequests;
+    /// @brief GPU memory usage in bytes
+    size_t gpuMemUsage;
+    /// @brief CPU memory usage in bytes
+    size_t cpuMemUsage;
+    /// @brief Pinned memory usage in bytes
+    size_t pinnedMemUsage;
+    /// @brief Stats specific to KV caches
+    std::optional<KvCacheStats> kvCacheStats;
+    /// @brief Stats specific to static batching
+    std::optional<StaticBatchingStats> staticBatchingStats;
+    /// @brief Stats specific to inflight batching
+    std::optional<InflightBatchingStats> inflightBatchingStats;
+};
+
+/// @brief Enum class that represents the state of a request
+enum class RequestStage
+{
+    /// @brief Request that have been received but not yet included in the active requests (due to constraints such as
+    /// maximum batch size for example).
+    kQUEUED,
+    /// @brief Active request in context phase
+    kCONTEXT_IN_PROGRESS,
+    /// @brief Active request in generation phase
+    kGENERATION_IN_PROGRESS,
+    /// @brief Active request for which generation has completed
+    kGENERATION_COMPLETE,
+
+};
+
+/// @brief Struct that holds the stats of a single request
+struct RequestStats
+{
+    /// @brief The request id
+    IdType id;
+    /// @brief The current stage the request is in
+    RequestStage stage;
+    /// @brief If using chunked context, the current context prefill position
+    SizeType contextPrefillPosition;
+    /// @brief The number of generated tokens so far
+    SizeType numGeneratedTokens;
+    /// @brief Whether the request is scheduled for the current iteration
+    bool scheduled;
+    /// @brief Whether the request is being paused at the current iteration due to lack of resources (KV cache blocks
+    /// exhaustion for example)
+    bool paused;
+};
+
+/// @brief Struct that holds the stats of all requests in an iteration
+struct RequestStatsPerIteration
+{
+    /// @brief The iteration id for these stats
+    IterationType iter;
+    /// @brief The stats of all active requests for this iteration
+    std::vector<RequestStats> requestStats;
+};
+
+/// @brief Decoding mode
+enum class DecodingMode
+{
+    /// @brief No mode specified. Config will be determined from the beam width of the first request at runtime
+    /// TopKTopP if beamWidth == 1, BeamSearch otherwise
+    kNONE,
+    kTOP_K,
+    kTOP_P,
+    kBEAM_SEARCH,
+    kMEDUSA,
+    kTOP_K_TOP_P,
 };
 
 } // namespace tensorrt_llm::executor

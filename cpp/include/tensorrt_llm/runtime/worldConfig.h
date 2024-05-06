@@ -27,7 +27,11 @@ namespace tensorrt_llm::runtime
 class WorldConfig
 {
 public:
+#if ENABLE_MULTI_DEVICE
     static SizeType constexpr kDefaultGpusPerNode = 8;
+#else
+    static SizeType constexpr kDefaultGpusPerNode = 1;
+#endif
 
     explicit WorldConfig(SizeType tensorParallelism = 1, SizeType pipelineParallelism = 1, SizeType rank = 0,
         SizeType gpusPerNode = kDefaultGpusPerNode,
@@ -106,12 +110,12 @@ public:
 
     [[nodiscard]] std::vector<SizeType> getPipelineParallelGroup() const;
 
-    static bool validConfig(SizeType tensorParallelism, SizeType pipelineParallelism);
-
     static WorldConfig mpi(SizeType gpusPerNode = kDefaultGpusPerNode,
         std::optional<SizeType> tensorParallelism = std::nullopt,
         std::optional<SizeType> pipelineParallelism = std::nullopt,
         std::optional<std::vector<SizeType>> const& deviceIds = std::nullopt);
+
+    [[nodiscard]] bool validMpiConfig() const;
 
 private:
     SizeType mTensorParallelism;

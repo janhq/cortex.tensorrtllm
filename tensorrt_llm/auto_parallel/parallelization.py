@@ -1,7 +1,7 @@
 import contextlib
 import copy
 import itertools
-import pickle
+import pickle  # nosec B403
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -12,8 +12,9 @@ import tensorrt as trt
 import torch
 from filelock import FileLock
 
-from tensorrt_llm._utils import trt_dtype_to_np, trt_dtype_to_torch
-from tensorrt_llm.functional import AllReduceStrategy
+from tensorrt_llm._utils import (preview_trt_version, trt_dtype_to_np,
+                                 trt_dtype_to_torch)
+from tensorrt_llm.functional import AllReduceConfig, AllReduceStrategy
 from tensorrt_llm.logger import logger
 from tensorrt_llm.mapping import Mapping
 from tensorrt_llm.network import (PluginInfo, delete_plugin_info, get_np_weight,
@@ -38,6 +39,8 @@ from .tensor_parallel.sharding_strategy import ShardingStrategy
 from .utils import (get_builder_flags, get_updated_plugin, to_base_class_layer,
                     to_subclass_layer, to_trt_weights)
 
+default_int_dtype = trt.int64 if preview_trt_version() else trt.int32
+
 
 @dataclass
 class ParallelConfig:
@@ -59,7 +62,7 @@ class ParallelConfig:
     @staticmethod
     def from_file(filename) -> "ParallelConfig":
         with open(filename, "rb") as file:
-            return pickle.load(file)
+            return pickle.load(file)  # nosec B301
 
     def print_graph_strategy(self, file=None):
         for index, (node_name,
@@ -632,8 +635,8 @@ class GraphGroup(ABC):
         return cast_layer.get_output(0)
 
     def const_int(self, network, name, value, layer_info):
-        const_layer = network.add_constant([1], np.array([value],
-                                                         dtype=np.int32))
+        const_layer = network.add_constant(
+            [1], np.array([value], dtype=trt_dtype_to_np(default_int_dtype)))
         self.register_layer(const_layer, name, *layer_info)
         return const_layer.get_output(0)
 
@@ -954,10 +957,8 @@ class GraphGroup(ABC):
                                                      [1])
             else:
                 input_dim = split_infos[dim].input_dim
-                output_dim_layer = network.add_constant([1],
-                                                        np.array(
-                                                            [input_dim],
-                                                            dtype=np.int32))
+                output_dim_layer = network.add_constant(
+                    [1], np.array([input_dim], dtype=default_int_dtype))
             self.register_layer(output_dim_layer, f"output_dim{dim}",
                                 *layer_info)
             output_dims.append(output_dim_layer.get_output(0))
@@ -1003,7 +1004,7 @@ class GraphGroup(ABC):
                                         *layer_info)
                     output_dim = self.cast(network,
                                            quotient_layer.get_output(0),
-                                           trt.DataType.INT32, layer_info)
+                                           default_int_dtype, layer_info)
                     output_dims.append(output_dim)
                 else:
                     output_dims.append(output_dim_layer.get_output(0))
@@ -1071,7 +1072,7 @@ class GraphGroup(ABC):
                     updated_reshape_dims[reshape_dim] = self.cast(
                         network,
                         quotient_layer.get_output(0),
-                        trt.DataType.INT32,
+                        default_int_dtype,
                         layer_info,
                     )
                 else:
@@ -1574,7 +1575,7 @@ class DistributedGraphGroup(GraphGroupBase):
             if self.use_custom_all_reduce:
                 strategy = AllReduceStrategy.AUTO
             else:
-                strategy = AllReduceStrategy.RING
+                strategy = AllReduceStrategy.NCCL
             allreduce_plg_creator = trt.get_plugin_registry(
             ).get_plugin_creator('AllReduce', '1', TRT_LLM_PLUGIN_NAMESPACE)
             assert allreduce_plg_creator is not None
@@ -1589,7 +1590,11 @@ class DistributedGraphGroup(GraphGroupBase):
             pf_strategy = trt.PluginField("strategy",
                                           np.array([int(strategy)], np.int8),
                                           trt.PluginFieldType.INT8)
-            pfc = [group, pf_type, pf_strategy]
+            config = AllReduceConfig(0)
+            pf_config = trt.PluginField("config",
+                                        np.array([int(config)], np.int8),
+                                        trt.PluginFieldType.INT8)
+            pfc = [group, pf_type, pf_strategy, pf_config]
             if self.use_custom_all_reduce:
                 pf_counter = trt.PluginField(
                     "counter",

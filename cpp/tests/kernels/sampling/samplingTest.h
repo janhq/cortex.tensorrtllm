@@ -22,7 +22,6 @@
 
 #include "tensorrt_llm/kernels/decodingCommon.h"
 #include "tensorrt_llm/kernels/penaltyKernels.h"
-#include "tensorrt_llm/kernels/samplingAirTopPKernels.h"
 #include "tensorrt_llm/kernels/samplingTopKKernels.h"
 #include "tensorrt_llm/kernels/samplingTopPKernels.h"
 #include "tensorrt_llm/runtime/bufferManager.h"
@@ -197,6 +196,7 @@ struct SamplingKernelTestParam
     int32_t maxTokensPerStep{1};
     bool returnAllTopK{false};
     bool useLogitsPtrs{false};
+    bool isDeterministicTopP{false};
 
     SamplingKernelTestParam& setBatchSize(int32_t bs)
     {
@@ -237,6 +237,12 @@ struct SamplingKernelTestParam
     SamplingKernelTestParam& setUseLogitsPtrs()
     {
         useLogitsPtrs = true;
+        return *this;
+    }
+
+    SamplingKernelTestParam& setDeterministicTopP(bool isDeter)
+    {
+        isDeterministicTopP = isDeter;
         return *this;
     }
 
@@ -302,10 +308,7 @@ protected:
 
     TensorPtr mCumLogProbsDevice;
     TensorPtr mOutputLogProbsDevice;
-    TensorPtr mTopPIdValsDevice;
     TensorPtr mZeroParentIdsDevice;
-    TensorPtr mBeginOffsetsDevice;
-    TensorPtr mEndOffsetsDevice;
 
     TensorPtr mLogitsHost;
     TensorPtr mLogProbsHost;

@@ -21,7 +21,7 @@ docker run --gpus all --ipc=host --ulimit memlock=-1 --shm-size=20g -it <the doc
 
 ```bash
 # Install AMMO
-pip install --no-cache-dir --extra-index-url https://pypi.nvidia.com nvidia-ammo~=0.7.3
+pip install --no-cache-dir --extra-index-url https://pypi.nvidia.com nvidia-ammo==0.9.3
 # Install the additional requirements
 cd <this example folder>
 pip install -r requirements.txt
@@ -29,7 +29,7 @@ pip install -r requirements.txt
 
 ## APIs
 
-[`quantize.py`](./quantize.py) uses the quantization toolkit to calibrate the PyTorch models and export TensorRT-LLM checkpoints. Each TensorRT-LLM checkpoint contains a config file (in .json format) and one or several rank weight files (in .safetensors format). The checkpoints can be directly used by `trtllm-build` command to build TensorRT-LLM engines. See this [`doc`](../../docs/source/new_workflow.md) for more details on the TensorRT-LLM checkpoint format.
+[`quantize.py`](./quantize.py) uses the quantization toolkit to calibrate the PyTorch models and export TensorRT-LLM checkpoints. Each TensorRT-LLM checkpoint contains a config file (in .json format) and one or several rank weight files (in .safetensors format). The checkpoints can be directly used by `trtllm-build` command to build TensorRT-LLM engines. See this [`doc`](../../docs/source/checkpoint.md) for more details on the TensorRT-LLM checkpoint format.
 
 > *This quantization step may take a long time to finish and requires large GPU memory. Please use a server grade GPU if a GPU out-of-memory error occurs*
 
@@ -74,16 +74,15 @@ After the model is quantized, it can be exported to a TensorRT-LLM checkpoint, w
 The export API is
 
 ```python
-from ammo.torch.export import export_model_config
+from ammo.torch.export import export_tensorrt_llm_checkpoint
 
 with torch.inference_mode():
-    export_model_config(
+    export_tensorrt_llm_checkpoint(
         model,  # The quantized model.
         decoder_type,  # The type of the model as str, e.g gptj, llama or gptnext.
         dtype,  # The exported weights data type as torch.dtype.
         export_dir,  # The directory where the exported files will be stored.
         inference_tensor_parallel=tp_size,  # The tensor parallelism size for inference.
         inference_pipeline_parallel=pp_size,  # The pipeline parallelism size for inference.
-        export_tensorrt_llm_config=True,  # Enable exporting TensorRT-LLM checkpoint config file.
     )
 ```

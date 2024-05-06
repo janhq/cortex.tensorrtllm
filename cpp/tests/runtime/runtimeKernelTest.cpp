@@ -27,6 +27,7 @@
 #include <NvInferRuntime.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <numeric>
 #include <vector>
@@ -89,7 +90,7 @@ TEST_F(RuntimeKernelTest, FillBufferInt8)
 
 TEST_F(RuntimeKernelTest, FillTensorInt8)
 {
-    for (auto size : {123, 1025, std::numeric_limits<SizeType>::max()})
+    for (auto size : {123, 1025, std::numeric_limits<int32_t>::max()})
     {
         auto tensor = mManager->gpu(ITensor::makeShape({size, 2}), nvinfer1::DataType::kINT8);
         testFill<std::int8_t>(*tensor, *mManager, *mStream);
@@ -869,7 +870,7 @@ TEST_F(RuntimeKernelTest, TileInt8Large)
     SizeType constexpr beamWidth{2};
 
     SizeType const d2{2};
-    auto const d3 = std::numeric_limits<SizeType>::max();
+    auto const d3 = std::numeric_limits<int32_t>::max();
     auto const inputShape = ITensor::makeShape({batchSize, d2, d3});
     auto const outputShape = ITensor::makeShape({batchSize * beamWidth, d2, d3});
 
@@ -897,7 +898,7 @@ TEST_F(RuntimeKernelTest, TileInplaceInt8Large)
     SizeType constexpr beamWidth{2};
 
     SizeType const d2{2};
-    auto const d3 = std::numeric_limits<SizeType>::max();
+    auto const d3 = std::numeric_limits<int32_t>::max();
     auto const inputShape = ITensor::makeShape({batchSize, d2, d3});
     auto const outputShape = ITensor::makeShape({batchSize * beamWidth, d2, d3});
 
@@ -926,11 +927,11 @@ void testCopyBatch(SizeType stride, BufferManager& manager, CudaStream& stream)
 
     auto const bufferShape = ITensor::makeShape({rows, stride});
     auto const indicesShape = ITensor::makeShape({numIndices});
-    auto srcBufferHost = manager.cpu(bufferShape, nvinfer1::DataType::kINT32);
+    auto srcBufferHost = BufferManager::cpu(bufferShape, nvinfer1::DataType::kINT32);
     auto dstBufferDevice = manager.gpu(bufferShape, nvinfer1::DataType::kINT32);
-    auto srcOffsets = manager.pinned(indicesShape, nvinfer1::DataType::kINT32);
-    auto dstOffsets = manager.pinned(indicesShape, nvinfer1::DataType::kINT32);
-    auto sizes = manager.pinned(indicesShape, nvinfer1::DataType::kINT32);
+    auto srcOffsets = BufferManager::pinned(indicesShape, nvinfer1::DataType::kINT32);
+    auto dstOffsets = BufferManager::pinned(indicesShape, nvinfer1::DataType::kINT32);
+    auto sizes = BufferManager::pinned(indicesShape, nvinfer1::DataType::kINT32);
     kernels::invokeFill(*dstBufferDevice, 0, stream);
 
     auto srcBufferHostPtr = bufferCast<std::int32_t>(*srcBufferHost);

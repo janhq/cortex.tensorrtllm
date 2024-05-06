@@ -24,21 +24,19 @@ using namespace tensorrt_llm::runtime;
 
 namespace
 {
-using DimType = std::remove_reference_t<decltype(std::declval<nvinfer1::Dims>().d[0])>;
-static_assert(sizeof(SizeType) >= sizeof(DimType), "SizeType is too small");
 static_assert(std::is_signed<SizeType>::value, "SizeType must be signed");
 
 nvinfer1::Dims shapeToDims(std::vector<std::size_t> const& shape)
 {
     TLLM_CHECK(shape.size() <= nvinfer1::Dims::MAX_DIMS);
     nvinfer1::Dims dims;
-    auto constexpr dim_max = std::numeric_limits<DimType>::max();
+    auto constexpr dim_max = std::numeric_limits<ITensor::DimType>::max();
     dims.nbDims = static_cast<std::int32_t>(shape.size());
     for (std::size_t i = 0; i < shape.size(); ++i)
     {
         // shape[i] >= 0 because it has unsigned type. Check upper bound:
         TLLM_CHECK(shape[i] <= static_cast<std::size_t>(dim_max));
-        dims.d[i] = static_cast<DimType>(shape[i]);
+        dims.d[i] = static_cast<ITensor::DimType>(shape[i]);
     }
     return dims;
 }
@@ -61,13 +59,17 @@ tensorrt_llm::runtime::TllmLogger defaultLogger{};
 
 TllmRuntime::TllmRuntime(void const* engineData, std::size_t engineSize, nvinfer1::ILogger& logger)
     : mStream(std::make_shared<CudaStream>())
-    , mBufferManager{mStream}
+    , mBufferManager{mStream, true} // Ensure to trim the memory pool on destruction.
     , mRuntime{nvinfer1::createInferRuntime(logger)}
     , mEngine{mRuntime->deserializeCudaEngine(engineData, engineSize)}
+    , mEngineInspector{mEngine->createEngineInspector()}
 {
     TLLM_CHECK_WITH_INFO(mEngine != nullptr, "Failed to deserialize cuda engine");
     auto const devMemorySize = mEngine->getDeviceMemorySize();
     mEngineBuffer = mBufferManager.gpu(devMemorySize);
+
+    // Print context memory size for CI/CD to track.
+    TLLM_LOG_INFO("Allocated %.2f MiB for execution context memory.", static_cast<double>(devMemorySize) / 1048576.0);
 }
 
 TllmRuntime::TllmRuntime(void const* engineData, std::size_t engineSize)
@@ -82,6 +84,11 @@ nvinfer1::IExecutionContext& TllmRuntime::addContext(std::int32_t profileIndex)
     auto& context = *mContexts.back();
     context.setDeviceMemory(mEngineBuffer->data());
     context.setOptimizationProfileAsync(profileIndex, mStream->get());
+    // If nvtx verbosity is DETAILED, change it to LAYER_NAMES_ONLY for inference performance
+    if (context.getNvtxVerbosity() == nvinfer1::ProfilingVerbosity::kDETAILED)
+    {
+        context.setNvtxVerbosity(nvinfer1::ProfilingVerbosity::kLAYER_NAMES_ONLY);
+    }
     return context;
 }
 

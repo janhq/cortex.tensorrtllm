@@ -25,18 +25,22 @@
 #include <cassert>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
 namespace tensorrt_llm::batch_manager
 {
 
+// TODO(rkobus): refactor
 enum LlmRequestState_t
 {
     REQUEST_STATE_UNKNOWN = 0,
     REQUEST_STATE_CONTEXT_INIT = 1,
     REQUEST_STATE_GENERATION_IN_PROGRESS = 2,
-    REQUEST_STATE_GENERATION_COMPLETE = 3
+    REQUEST_STATE_GENERATION_TO_COMPLETE = 3,
+    REQUEST_STATE_GENERATION_COMPLETE = 4,
+    REQUEST_STATE_ENC_INIT = 5 // For enc-dec models, encoder output has been computed
 };
 
 template <typename TTensor, typename TStream = runtime::BufferManager::CudaStreamPtr>
@@ -46,23 +50,25 @@ public:
     using SizeType = runtime::SizeType;
     using TokenIdType = runtime::TokenIdType;
     using RequestIdType = std::uint64_t;
+    using LoraTaskIdType = std::uint64_t;
     using VecTokens = std::vector<TokenIdType>;
     using VecLogProbs = std::vector<float>;
     using BeamTokens = std::vector<VecTokens>;
     using TensorPtr = TTensor;
-    using LogitsPostProcessor = std::function<TensorPtr(RequestIdType, TensorPtr&, BeamTokens const&, TStream)>;
+    using LogitsPostProcessor = std::function<void(RequestIdType, TensorPtr&, BeamTokens const&, TStream)>;
 
     GenericLlmRequest(RequestIdType requestId, SizeType maxNewTokens, std::shared_ptr<VecTokens> inputTokens,
         runtime::SamplingConfig const& samplingConfig, bool isStreaming, std::optional<SizeType> endId = std::nullopt,
         std::optional<SizeType> padId = std::nullopt, std::optional<TensorPtr> embeddingBias = std::nullopt,
         std::optional<TensorPtr> badWordsList = std::nullopt, std::optional<TensorPtr> stopWordsList = std::nullopt,
         std::optional<TensorPtr> promptEmbeddingTable = std::nullopt,
-        std::optional<SizeType> promptVocabSize = std::nullopt, std::optional<TensorPtr> loraWeights = std::nullopt,
-        std::optional<TensorPtr> loraConfig = std::nullopt, bool returnLogProbs = false,
-        bool returnContextLogits = false, bool returnGenerationLogits = false,
+        std::optional<SizeType> promptVocabSize = std::nullopt, std::optional<LoraTaskIdType> loraTaskId = std::nullopt,
+        std::optional<TensorPtr> loraWeights = std::nullopt, std::optional<TensorPtr> loraConfig = std::nullopt,
+        bool returnLogProbs = false, bool returnContextLogits = false, bool returnGenerationLogits = false,
         std::optional<std::shared_ptr<VecTokens>> draftTokens = std::nullopt,
         std::optional<TensorPtr> draftLogits = std::nullopt, bool excludeInputFromOutput = false,
-        std::optional<LogitsPostProcessor> logitsPostProcessor = std::nullopt)
+        std::optional<LogitsPostProcessor> logitsPostProcessor = std::nullopt,
+        std::shared_ptr<VecTokens> encoderInputTokens = nullptr)
         : mRequestId(requestId)
         , mPromptLen(inputTokens->size())
         , mMaxNewTokens(maxNewTokens)
@@ -71,7 +77,6 @@ public:
         , mIsStreaming(isStreaming)
         , mEndId(endId)
         , mPadId(padId)
-        , mSeqSlot(-1)
         , mLogitsPostProcessor(logitsPostProcessor)
         , mOrigPromptLen(mPromptLen)
         , mMaxSentTokenPos(mPromptLen - 1)
@@ -80,6 +85,7 @@ public:
         , mStopWordsList(std::move(stopWordsList))
         , mPromptEmbeddingTable(std::move(promptEmbeddingTable))
         , mPromptVocabSize(promptVocabSize)
+        , mLoraTaskId(loraTaskId)
         , mLoraWeights(std::move(loraWeights))
         , mLoraConfig(std::move(loraConfig))
         , mReturnLogProbs(returnLogProbs)
@@ -89,9 +95,11 @@ public:
         , mCumLogProbs(samplingConfig.beamWidth)
         , mDraftTokens(draftTokens.value_or(std::make_shared<VecTokens>()))
         , mDraftLogits(draftLogits)
+        , mNumTokensPerIteration(1)
         , mReturnContextLogits(returnContextLogits)
         , mReturnGenerationLogits(returnGenerationLogits)
         , mExcludeInputFromOutput(excludeInputFromOutput)
+        , mEncoderInputTokens(encoderInputTokens)
     {
         initialize(*inputTokens);
     }
@@ -105,7 +113,6 @@ public:
         , mIsStreaming(req.getStreaming())
         , mEndId(req.getEndId())
         , mPadId(req.getPadId())
-        , mSeqSlot(-1)
         , mOrigPromptLen(mPromptLen)
         , mMaxSentTokenPos(mPromptLen - 1)
         , mReturnLogProbs(req.getOutputConfig().returnLogProbs)
@@ -145,11 +152,19 @@ public:
         auto loraConfig = req.getLoraConfig();
         if (loraConfig)
         {
-            mLoraWeights = executor::detail::toITensor(loraConfig.value().getWeights());
-            mLoraWeights.value()->unsqueeze(0);
+            mLoraTaskId = loraConfig->getTaskId();
+            auto optWeights = loraConfig->getWeights();
+            if (loraConfig.value().getWeights())
+            {
+                mLoraWeights = executor::detail::toITensor(loraConfig.value().getWeights().value());
+                mLoraWeights.value()->unsqueeze(0);
+            }
 
-            mLoraConfig = executor::detail::toITensor(loraConfig.value().getConfig());
-            mLoraConfig.value()->unsqueeze(0);
+            if (loraConfig.value().getConfig())
+            {
+                mLoraConfig = executor::detail::toITensor(loraConfig.value().getConfig().value());
+                mLoraConfig.value()->unsqueeze(0);
+            }
         }
 
         auto speculativeDecodingConfig = req.getSpeculativeDecodingConfig();
@@ -179,9 +194,9 @@ public:
         {
             auto const maxNewTokens = maxSequenceLen - mPromptLen;
             TLLM_LOG_WARNING(
-                "Number of requested output tokens (%d) exceeds maximum sequence length (%d). "
+                "Prompt length + number of requested output tokens (%d + %d) exceeds maximum sequence length (%d). "
                 "Number of requested output tokens is changed to (%d).",
-                mMaxNewTokens, maxSequenceLen, maxNewTokens);
+                mPromptLen, mMaxNewTokens, maxSequenceLen, maxNewTokens);
             mMaxNewTokens = maxNewTokens;
         }
 
@@ -241,6 +256,19 @@ public:
     [[nodiscard]] BeamTokens const& getTokens() const
     {
         return mTokens;
+    }
+
+    /// @brief Get input tokens to encoder
+    /// @return A vector of tokens.
+    std::shared_ptr<VecTokens> const& getEncoderInputTokens() const
+    {
+        return mEncoderInputTokens;
+    }
+
+    SizeType getEncoderInputSize() const
+    {
+        TLLM_CHECK_WITH_INFO(static_cast<bool>(getEncoderInputTokens()), "Encoder input tokens must not be nullptr");
+        return getEncoderInputTokens()->size();
     }
 
     /// @brief Get the draft tokens
@@ -344,7 +372,7 @@ public:
         mState = REQUEST_STATE_CONTEXT_INIT;
         mContextCurrentPosition = 0;
         mContextChunkSize = std::nullopt;
-        mSeqSlot = -1;
+        mSeqSlot.reset();
     }
 
     /// @brief Get the maximum position of the tokens returned to the client. Use to ensure we don't return to
@@ -371,6 +399,16 @@ public:
     [[nodiscard]] std::optional<SizeType> getPromptVocabSize() const
     {
         return mPromptVocabSize;
+    }
+
+    [[nodiscard]] std::optional<LoraTaskIdType> getLoraTaskId() const
+    {
+        return mLoraTaskId;
+    }
+
+    void setLoraTaskId(LoraTaskIdType taskId)
+    {
+        mLoraTaskId = taskId;
     }
 
     [[nodiscard]] std::optional<TensorPtr> getLoraWeights() const
@@ -474,6 +512,16 @@ public:
         return mDraftTokens->size();
     }
 
+    void setNumTokensPerIteration(SizeType numTokensPerIteration)
+    {
+        mNumTokensPerIteration = numTokensPerIteration;
+    }
+
+    SizeType getNumTokensPerIteration() const
+    {
+        return mNumTokensPerIteration;
+    }
+
     void setReturnContextLogits(bool const returnContextLogits)
     {
         mReturnContextLogits = returnContextLogits;
@@ -553,7 +601,7 @@ public:
 
     [[nodiscard]] bool isGenerationInProgressState() const noexcept
     {
-        return mState == REQUEST_STATE_GENERATION_IN_PROGRESS;
+        return mState == REQUEST_STATE_GENERATION_IN_PROGRESS || mState == REQUEST_STATE_GENERATION_TO_COMPLETE;
     }
 
     [[nodiscard]] bool isGenerationCompleteState() const noexcept
@@ -579,6 +627,16 @@ public:
     [[nodiscard]] SizeType getContextRemainingLength() const noexcept
     {
         return mPromptLen - getContextCurrentPosition();
+    }
+
+    TensorPtr getEncoderOutput() const noexcept
+    {
+        return mEncoderOutput;
+    }
+
+    void setEncoderOutput(TensorPtr encoderOutput)
+    {
+        mEncoderOutput = std::move(encoderOutput);
     }
 
     /// To retrieve the context chunk size, throw an exception when the context is not chunked.
@@ -634,11 +692,10 @@ public:
     /// @return An optional Response
     std::optional<executor::Response> createResponse()
     {
-        if (mState == batch_manager::REQUEST_STATE_GENERATION_COMPLETE
-            || (mIsStreaming && mState == batch_manager::REQUEST_STATE_GENERATION_IN_PROGRESS))
+        if (isGenerationCompleteState() || (mIsStreaming && isGenerationInProgressState()))
         {
             executor::Result result;
-            result.isFinal = mState == batch_manager::REQUEST_STATE_GENERATION_COMPLETE ? true : false;
+            result.isFinal = isGenerationCompleteState();
 
             auto nbBeams = mSamplingConfig.beamWidth;
             auto maxNbTokens = getMaxBeamNumTokens();
@@ -653,8 +710,7 @@ public:
             result.outputTokenIds.resize(nbBeams);
             SizeType tokenPos = maxNbTokens - nbTokensOut;
 
-            bool shouldSendResponse = (mState == batch_manager::REQUEST_STATE_GENERATION_COMPLETE)
-                || (mIsStreaming && tokenPos > getMaxSentTokenPos());
+            bool shouldSendResponse = isGenerationCompleteState() || (mIsStreaming && tokenPos > getMaxSentTokenPos());
 
             if (!shouldSendResponse)
             {
@@ -713,9 +769,9 @@ public:
     runtime::SamplingConfig mSamplingConfig;
     LlmRequestState_t mState;
     bool mIsStreaming;
-    std::optional<SizeType> mEndId;
-    std::optional<SizeType> mPadId;
-    SizeType mSeqSlot;
+    std::optional<TokenIdType> mEndId;
+    std::optional<TokenIdType> mPadId;
+    std::optional<SizeType> mSeqSlot;
     std::optional<LogitsPostProcessor> mLogitsPostProcessor;
 
 protected:
@@ -730,8 +786,12 @@ protected:
     std::optional<TensorPtr> mPromptEmbeddingTable;
     std::optional<SizeType> mPromptVocabSize;
 
+    std::optional<LoraTaskIdType> mLoraTaskId;
     std::optional<TensorPtr> mLoraWeights;
     std::optional<TensorPtr> mLoraConfig;
+
+    // encoder output, saved for computing cross attention KV Cache
+    TensorPtr mEncoderOutput;
 
     bool mReturnLogProbs;
 
@@ -745,6 +805,7 @@ protected:
     VecLogProbs mCumLogProbs;           // [beamSize]
     std::shared_ptr<VecTokens> mDraftTokens;
     std::optional<TensorPtr> mDraftLogits;
+    SizeType mNumTokensPerIteration;
 
     // Save logits
     bool mReturnContextLogits;
@@ -756,6 +817,8 @@ protected:
     std::vector<TensorPtr> mGenerationLogitsFragments;
 
     bool mExcludeInputFromOutput;
+    std::shared_ptr<VecTokens>
+        mEncoderInputTokens; // Input tokens to the encoder for enc only models and enc-dec models
 
 private:
     void initialize(VecTokens const& inputTokens)
@@ -822,23 +885,47 @@ public:
         std::optional<SizeType> padId = std::nullopt, std::optional<TensorPtr> embeddingBias = std::nullopt,
         std::optional<TensorPtr> badWordsList = std::nullopt, std::optional<TensorPtr> stopWordsList = std::nullopt,
         std::optional<TensorPtr> promptEmbeddingTable = std::nullopt,
-        std::optional<SizeType> promptVocabSize = std::nullopt, std::optional<TensorPtr> loraWeights = std::nullopt,
-        std::optional<TensorPtr> loraConfig = std::nullopt, bool returnLogProbs = false,
-        bool returnContextLogits = false, bool returnGenerationLogits = false,
+        std::optional<SizeType> promptVocabSize = std::nullopt, std::optional<LoraTaskIdType> loraTaskId = std::nullopt,
+        std::optional<TensorPtr> loraWeights = std::nullopt, std::optional<TensorPtr> loraConfig = std::nullopt,
+        bool returnLogProbs = false, bool returnContextLogits = false, bool returnGenerationLogits = false,
         std::optional<std::shared_ptr<VecTokens>> draftTokens = std::nullopt,
         std::optional<TensorPtr> draftLogits = std::nullopt, bool excludeInputFromOutput = false,
-        std::optional<LogitsPostProcessor> logitsPostProcessor = std::nullopt)
+        std::optional<LogitsPostProcessor> logitsPostProcessor = std::nullopt,
+        std::shared_ptr<VecTokens> encoderInputTokens = nullptr)
         : Base(requestId, maxNewTokens, std::move(inputTokens), samplingConfig, isStreaming, endId, padId,
             std::move(embeddingBias), std::move(badWordsList), std::move(stopWordsList),
-            std::move(promptEmbeddingTable), promptVocabSize, std::move(loraWeights), std::move(loraConfig),
+            std::move(promptEmbeddingTable), promptVocabSize, loraTaskId, std::move(loraWeights), std::move(loraConfig),
             returnLogProbs, returnContextLogits, returnGenerationLogits, std::move(draftTokens), std::move(draftLogits),
-            excludeInputFromOutput, std::move(logitsPostProcessor))
+            excludeInputFromOutput, std::move(logitsPostProcessor), encoderInputTokens)
     {
     }
 
-    LlmRequest(RequestIdType requestId, executor::Request const& Request)
+    LlmRequest(RequestIdType requestId, executor::Request const& Request,
+        std::optional<Base::LogitsPostProcessor> logitsPostProcessor = std::nullopt)
         : Base(requestId, Request)
     {
+        mLogitsPostProcessor = std::move(logitsPostProcessor);
+    }
+
+    static LlmRequest createEncoderRequest(RequestIdType requestId, SizeType maxNewTokens,
+        std::shared_ptr<VecTokens> encoderInputTokens, std::shared_ptr<VecTokens> inputTokens,
+        runtime::SamplingConfig samplingConfig, bool isStreaming, std::optional<SizeType> endId = std::nullopt,
+        std::optional<SizeType> padId = std::nullopt, std::optional<TensorPtr> embeddingBias = std::nullopt,
+        std::optional<TensorPtr> badWordsList = std::nullopt, std::optional<TensorPtr> stopWordsList = std::nullopt,
+        std::optional<TensorPtr> promptEmbeddingTable = std::nullopt,
+        std::optional<SizeType> promptVocabSize = std::nullopt, std::optional<LoraTaskIdType> loraTaskId = std::nullopt,
+        std::optional<TensorPtr> loraWeights = std::nullopt, std::optional<TensorPtr> loraConfig = std::nullopt,
+        bool returnLogProbs = false, bool returnContextLogits = false, bool returnGenerationLogits = false,
+        std::optional<std::shared_ptr<VecTokens>> draftTokens = std::nullopt,
+        std::optional<TensorPtr> draftLogits = std::nullopt, bool excludeInputFromOutput = false,
+        std::optional<LogitsPostProcessor> logitsPostProcessor = std::nullopt)
+    {
+        LlmRequest request(requestId, maxNewTokens, inputTokens, samplingConfig, isStreaming, endId, padId,
+            embeddingBias, badWordsList, stopWordsList, promptEmbeddingTable, promptVocabSize, loraTaskId, loraWeights,
+            loraConfig, returnLogProbs, returnContextLogits, returnGenerationLogits, draftTokens, draftLogits,
+            excludeInputFromOutput, logitsPostProcessor, encoderInputTokens);
+        request.mState = REQUEST_STATE_ENC_INIT;
+        return request;
     }
 
     void movePromptEmbeddingTableToGpu(runtime::BufferManager const& manager)

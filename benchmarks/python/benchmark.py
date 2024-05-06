@@ -90,6 +90,17 @@ def parse_arguments():
                         default="0",
                         help=('Specify Top-P value of decoding.'))
     parser.add_argument(
+        '--input_timing_cache',
+        type=str,
+        default=None,
+        help=
+        'The path to read timing cache, will be ignored if the file does not exist'
+    )
+    parser.add_argument('--output_timing_cache',
+                        type=str,
+                        default='model.cache',
+                        help='The path to write timing cache')
+    parser.add_argument(
         '--profiling_verbosity',
         type=str,
         default='layer_names_only',
@@ -244,6 +255,19 @@ def parse_arguments():
         help=
         "Check the estimated memory usage against the total GPU memory. Raise error if the estimated memory requirement is bigger than the total GPU memory"
         "Warning: only GPT model family is supported for now")
+    parser.add_argument(
+        '--dump_profile',
+        default=False,
+        action='store_true',
+        help="Print profile information per layer (default = disabled)")
+
+    parser.add_argument(
+        '--dump_layer_info',
+        default=False,
+        action='store_true',
+        help=
+        "Print layer information of the engine to console (default = disabled)")
+
     return parser.parse_args()
 
 
@@ -309,6 +333,9 @@ def main(args):
 
     if args.build_only:
         return
+
+    if args.dump_profile and benchmark_profiler is not None:
+        benchmark_profiler.set_recording_perf_profile(True)
 
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)

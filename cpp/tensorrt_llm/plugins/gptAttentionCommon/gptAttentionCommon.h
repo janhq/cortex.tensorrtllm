@@ -22,6 +22,7 @@
 #include "tensorrt_llm/kernels/contextFusedMultiHeadAttention/fused_multihead_attention_common.h"
 #include "tensorrt_llm/kernels/decoderMaskedMultiheadAttention/decoderXQARunner.h"
 #include "tensorrt_llm/kernels/gptKernels.h"
+#include "tensorrt_llm/kernels/kvCacheUtils.h"
 #include "tensorrt_llm/plugins/common/plugin.h"
 #include <cassert>
 #include <set>
@@ -46,8 +47,8 @@ public:
         int kv_cache_quant_mode, bool remove_input_padding, tensorrt_llm::kernels::AttentionMaskType mask_type,
         bool paged_kv_cache, int tokens_per_block, nvinfer1::DataType type, int32_t max_context_length,
         bool qkv_bias_enabled, bool cross_attention = false, int max_distance = 0, bool pos_shift_enabled = false,
-        bool dense_context_fmha = false, bool use_paged_context_fmha = false, bool use_cache = true,
-        bool is_medusa_enabled = false);
+        bool dense_context_fmha = false, bool use_paged_context_fmha = false, bool use_fp8_context_fmha = false,
+        bool use_cache = true, bool is_medusa_enabled = false);
 
     GPTAttentionPluginCommon(void const* data, size_t length);
 
@@ -89,6 +90,8 @@ protected:
     {
         T const* attention_input;
         T const* qkv_bias;
+        // Rotary cos sin cache buffer to avoid re-computing.
+        float2 const* rotary_cos_sin;
         int32_t input_seq_length; // padded input length
         int32_t max_past_kv_len;
         // By default, max_attention_window == cyclic_attention_window_size
@@ -102,11 +105,14 @@ protected:
         int32_t const* kv_seq_lengths;
         float const* kv_scale_orig_quant;
         float const* kv_scale_quant_orig;
+        float const* attention_output_orig_quant;
         T const* alibi_slopes;
         T* context_buf;
         void* key_value_cache;
-        void* block_pointers;
-        void* host_block_pointers;
+        kernels::KVBlockArray::DataType* block_offsets;
+        kernels::KVBlockArray::DataType* host_block_offsets;
+        void* host_primary_pool_pointer;
+        void* host_secondary_pool_pointer;
         int32_t batch_size;
         int32_t num_tokens;
         int32_t max_blocks_per_sequence;
@@ -132,15 +138,18 @@ protected:
         // NOTE: input_seq_length might be larger than one in the medusa mode.
         int32_t input_seq_length;
         int32_t const* sequence_lengths;
-        int32_t past_kv_length;
+        int32_t max_past_kv_length;
         int32_t beam_width;
         int32_t const* context_lengths;
         float const* kv_scale_orig_quant;
         float const* kv_scale_quant_orig;
+        float const* attention_output_orig_quant;
         T const* alibi_slopes;
         T* context_buf;
         void* key_value_cache;
-        void* block_pointers;
+        kernels::KVBlockArray::DataType* block_offsets;
+        void* host_primary_pool_pointer;
+        void* host_secondary_pool_pointer;
         // By default, max_attention_window == cyclic_attention_window_size
         // unless each layer has different cyclic kv cache length.
         // Max cache capacity (used to allocate KV cache)
@@ -208,6 +217,10 @@ protected:
         return mUseKVCache;
     }
 
+    void reserveSemaphoreArray(int32_t size);
+
+    void debugCheckSemaphores(cudaStream_t stream);
+
 protected:
     static constexpr int kReservedMaxSeqLenTilePerSeq = 64;
 
@@ -241,6 +254,7 @@ protected:
     int mMaxDistance = 0;
     bool mPosShiftEnabled = false;
     bool mPagedContextFMHA = false;
+    bool mFP8ContextFMHA = false;
     bool mDenseContextFMHA = false;
     bool mIsMedusaEnabled = false;
 
@@ -258,9 +272,6 @@ protected:
     // The default copy constructor will leave it as nullptr. clone() shall initialize it.
     UniqPtrWNullCopy<tensorrt_llm::kernels::MHARunner> mFMHARunner;
     UniqPtrWNullCopy<tensorrt_llm::kernels::DecoderXQARunner> mDecoderXQARunner;
-    // Cache the grid_size and block_size that gives the highest occupancy for
-    //  invokeApplyBiasRopeUpdateKVCache.
-    int2 mLaunchGridBlockCache = make_int2(0, 0);
 
     bool mMultiBlockMode;
     bool mEnableXQA;
@@ -269,6 +280,20 @@ protected:
     // The default copy constructor will leave it as nullptr. clone() shall initialize it.
     UniqPtrWNullCopy<tensorrt_llm::common::CublasMMWrapper> mCublasWrapper;
     bool mUseKVCache = true;
+
+    // This is implementation details which we want to save when serializing, but not expose as
+    // a plugin field or a constructor parameter
+    int32_t mNbMultiBlockSemaphores = 0;
+
+    struct Deleter
+    {
+        void operator()(void* ptr)
+        {
+            cudaFree(ptr);
+        }
+    };
+
+    UniqPtrWNullCopy<int32_t[], Deleter> mMultiBlockSemaphores = {};
 };
 
 class GPTAttentionPluginCreatorCommon : public BaseCreator

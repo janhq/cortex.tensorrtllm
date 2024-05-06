@@ -43,7 +43,8 @@ protected:
 private:
     size_t getWorkspaceSize(SamplingKernelTestParam const& params) override
     {
-        return tensorrt_llm::kernels::getAirTopPWorkspaceSize<T>(params.batchSize, params.vocabSize);
+        return tensorrt_llm::kernels::getAirTopPWorkspaceSize<T>(
+            params.batchSize, params.vocabSize, params.isDeterministicTopP);
     }
 
     void callTestedFunction(
@@ -56,52 +57,88 @@ private:
         TLLM_CUDA_CHECK(cudaDeviceGetAttribute(&smCnt, cudaDevAttrMultiProcessorCount, dev));
         auto const maxBatchSize = 2 * params.batchSize;
 
-        int blockNum = tk::calcAirTopPBlockNum<T, int, float>(params.batchSize, params.vocabSize, smCnt);
+        int blockNum
+            = tk::calcAirTopPBlockNum<T>(params.batchSize, params.vocabSize, smCnt, params.isDeterministicTopP);
+
+        tk::TopPSamplingKernelParams<T> kernelParams;
+        kernelParams.probs = bufferCast<T>(*this->mProbsDevice);
+        kernelParams.outputIds = bufferCast<int*>(*this->mIdsPtrHost);
+        kernelParams.workspace = workspaceDevice->data();
+        kernelParams.topPs = bufferCast<float>(*this->mTopPsDevice);
+        kernelParams.sequenceLength = bufferCast<int32_t>(*this->mSeqLengthsDevice);
+        kernelParams.endIds = bufferCast<int32_t>(*this->mEndIdsDevice);
+        kernelParams.batchSlots = bufferCast<int32_t>(*this->mBatchSlots);
+        kernelParams.finishedInput = reinterpret_cast<tensorrt_llm::kernels::FinishedState*>(
+            bufferCast<tensorrt_llm::kernels::FinishedState::UnderlyingType>(*this->mFinishedDevice));
+        kernelParams.finishedOutput = reinterpret_cast<tensorrt_llm::kernels::FinishedState*>(
+            bufferCast<tensorrt_llm::kernels::FinishedState::UnderlyingType>(*this->mFinishedDevice));
+        kernelParams.skipDecode = bufferCast<bool>(*this->mSkipDecodeDevice);
+        kernelParams.cumLogProbs = bufferCast<float>(*this->mCumLogProbsDevice);
+        kernelParams.outputLogProbs = bufferCast<float>(*this->mOutputLogProbsDevice);
+        kernelParams.curandState = reinterpret_cast<curandState_t*>(bufferCast<int8_t>(*this->mCurandStatesDevice));
+        kernelParams.batchSize = params.batchSize;
+        kernelParams.maxBatchSize = maxBatchSize;
+        kernelParams.vocabSizePadded = params.vocabSize;
+        kernelParams.blockNum = blockNum;
+        kernelParams.isDeterministic = params.isDeterministicTopP;
+
         // Perform batched TopP sampling
-        tk::invokeBatchAirTopPSampling<T>(workspaceDevice->data(), bufferCast<int*>(*this->mIdsPtrHost),
-            bufferCast<int32_t>(*this->mSeqLengthsDevice),
-            reinterpret_cast<tensorrt_llm::kernels::FinishedState*>(
-                bufferCast<tensorrt_llm::kernels::FinishedState::UnderlyingType>(*this->mFinishedDevice)),
-            reinterpret_cast<tensorrt_llm::kernels::FinishedState*>(
-                bufferCast<tensorrt_llm::kernels::FinishedState::UnderlyingType>(*this->mFinishedDevice)),
-            bufferCast<float>(*this->mCumLogProbsDevice), bufferCast<float>(*this->mOutputLogProbsDevice),
-            // Note that the kernel needs vocab probs instead of
-            // log-prob if cum_log_probs or output_log_probs are
-            // provided. It's because the sampling layer already
-            // preprocesses log_prob_buf when those are provided.
-            bufferCast<T>(*this->mProbsDevice),
-            reinterpret_cast<curandState_t*>(bufferCast<int8_t>(*this->mCurandStatesDevice)), params.batchSize,
-            maxBatchSize, params.vocabSize, bufferCast<int32_t>(*this->mEndIdsDevice), this->mMaxTopP,
-            bufferCast<float>(*this->mTopPsDevice), this->mStream->get(), blockNum,
-            bufferCast<bool>(*this->mSkipDecodeDevice), bufferCast<int32_t>(*this->mBatchSlots));
+        tk::invokeBatchAirTopPSampling<T>(kernelParams, this->mStream->get());
     }
 };
 
 TYPED_TEST_SUITE(AirTopPSamplingKernelTest, FloatAndHalfTypes);
 
-TYPED_TEST(AirTopPSamplingKernelTest, CorrectnessSmallP)
+TYPED_TEST(AirTopPSamplingKernelTest, NondeterministicCorrectnessSmallP)
 {
     this->runTest(SamplingKernelTestParam().setBatchSize(6).setVocabSize(4).setTopP(0.2f));
 };
 
-TYPED_TEST(AirTopPSamplingKernelTest, CorrectnessLargeP)
+TYPED_TEST(AirTopPSamplingKernelTest, NondeterministicCorrectnessLargeP)
 {
     this->runTest(SamplingKernelTestParam().setBatchSize(6).setVocabSize(4).setTopP(0.9f));
 };
 
-TYPED_TEST(AirTopPSamplingKernelTest, CorrectnessAncestral)
+TYPED_TEST(AirTopPSamplingKernelTest, NondeterministicCorrectnessAncestral)
 {
     this->runTest(SamplingKernelTestParam().setBatchSize(6).setVocabSize(4).setTopP(1.0f));
 };
 
-TYPED_TEST(AirTopPSamplingKernelTest, CorrectnessLargeVocabSmallP)
+TYPED_TEST(AirTopPSamplingKernelTest, NondeterministicCorrectnessLargeVocabSmallP)
 {
     this->runTest(SamplingKernelTestParam().setBatchSize(32).setVocabSize(51200).setTopP(0.2f));
 };
 
-TYPED_TEST(AirTopPSamplingKernelTest, CorrectnessLargeVocabLargeP)
+TYPED_TEST(AirTopPSamplingKernelTest, NondeterministicCorrectnessLargeVocabLargeP)
 {
     this->runTest(SamplingKernelTestParam().setBatchSize(32).setVocabSize(51200).setTopP(0.9f));
+};
+
+TYPED_TEST(AirTopPSamplingKernelTest, DeterministicCorrectnessSmallP)
+{
+    this->runTest(SamplingKernelTestParam().setBatchSize(6).setVocabSize(4).setTopP(0.2f).setDeterministicTopP(true));
+};
+
+TYPED_TEST(AirTopPSamplingKernelTest, DeterministicCorrectnessLargeP)
+{
+    this->runTest(SamplingKernelTestParam().setBatchSize(6).setVocabSize(4).setTopP(0.9f).setDeterministicTopP(true));
+};
+
+TYPED_TEST(AirTopPSamplingKernelTest, DeterministicCorrectnessAncestral)
+{
+    this->runTest(SamplingKernelTestParam().setBatchSize(6).setVocabSize(4).setTopP(1.0f).setDeterministicTopP(true));
+};
+
+TYPED_TEST(AirTopPSamplingKernelTest, DeterministicCorrectnessLargeVocabSmallP)
+{
+    this->runTest(
+        SamplingKernelTestParam().setBatchSize(32).setVocabSize(51200).setTopP(0.2f).setDeterministicTopP(true));
+};
+
+TYPED_TEST(AirTopPSamplingKernelTest, DeterministicCorrectnessLargeVocabLargeP)
+{
+    this->runTest(
+        SamplingKernelTestParam().setBatchSize(32).setVocabSize(51200).setTopP(0.9f).setDeterministicTopP(true));
 };
 
 class AirTopPSamplingKernelUtilsTest : public SamplingKernelTest<float>
