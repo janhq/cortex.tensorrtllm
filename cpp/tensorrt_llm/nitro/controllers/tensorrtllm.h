@@ -10,7 +10,7 @@
 #include "tensorrt_llm/runtime/generationInput.h"
 #include "tensorrt_llm/runtime/generationOutput.h"
 #include "tensorrt_llm/runtime/gptJsonConfig.h"
-#include "tensorrt_llm/runtime/gptModelConfig.h"
+#include "tensorrt_llm/runtime/modelConfig.h"
 #include "tensorrt_llm/runtime/gptSession.h"
 #include "tensorrt_llm/runtime/samplingConfig.h"
 #include "tensorrt_llm/runtime/tllmLogger.h"
@@ -105,7 +105,7 @@ public:
 private:
     GptSession::Config sessionConfig{1, 1, 1};
     SamplingConfig samplingConfig{1};
-    std::unique_ptr<GptModelConfig> modelConfig;
+    std::unique_ptr<ModelConfig> modelConfig;
     std::shared_ptr<TllmLogger> logger;
     std::string user_prompt;
     std::string ai_prompt;

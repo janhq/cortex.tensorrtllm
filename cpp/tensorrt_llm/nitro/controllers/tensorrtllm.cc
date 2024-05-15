@@ -363,7 +363,7 @@ void tensorrtllm::loadModel(HttpRequestPtr const& req, std::function<void(HttpRe
 
     auto const json = GptJsonConfig::parse(jsonFileName);
     auto config = json.getModelConfig();
-    modelConfig = std::make_unique<GptModelConfig>(config);
+    modelConfig = std::make_unique<ModelConfig>(config);
     auto const worldConfig = WorldConfig::mpi(1, json.getTensorParallelism(), json.getPipelineParallelism());
     auto const enginePath = engineDir / json.engineFilename(worldConfig, modelName);
     LOG_INFO << "Engine Path : " << enginePath.string();
