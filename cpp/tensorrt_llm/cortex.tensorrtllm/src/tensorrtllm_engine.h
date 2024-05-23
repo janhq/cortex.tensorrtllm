@@ -77,7 +77,6 @@ struct InferenceState {
 
 class TensorrtllmEngine : public EngineI {
   public:
-    TensorrtllmEngine();
     ~TensorrtllmEngine() final;
     // ### Interface ###
   void LoadModel(

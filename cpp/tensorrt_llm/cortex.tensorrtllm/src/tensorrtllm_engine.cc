@@ -129,7 +129,7 @@ GenerationOutput TensorrtllmEngine::CreateGenerationOutput() {
 }
 
 void InferenceThread(std::shared_ptr<InferenceState> infer_state, std::vector<int32_t> input_ids_host,
-                     std::function<void(Json::Value&&, Json::Value&&)>& callback, TensorrtllmEngine* self, 
+                     const std::function<void(Json::Value&&, Json::Value&&)>& callback, TensorrtllmEngine* self, 
                      SamplingConfig sampling_config, int input_len, int output_len) {
 
   // Input preparation
@@ -317,7 +317,7 @@ void TensorrtllmEngine::HandleInferenceImpl(
   });
 }
 
-void DestroyImpl(std::function<void(Json::Value&&, Json::Value&&)>&& callback) {
+void TensorrtllmEngine::DestroyImpl(std::function<void(Json::Value&&, Json::Value&&)>&& callback) {
   LOG_INFO << "Program is exitting, goodbye!";
   exit(0);
   return;

@@ -18,12 +18,10 @@ cmake_minimum_required(VERSION 3.5)
 project(cortex.tensorrtllm)
 set(TARGET engine)
 
-if(UNIX AND NOT APPLE)
-  set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -fPIC")
-  add_compile_options(-fPIC)
-endif()
+add_library(${TARGET} SHARED src/tensorrtllm_engine.cc)
 
 if(UNIX AND NOT APPLE)
+  set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -fPIC")
   add_compile_options(-fPIC)
 endif()
 
@@ -49,7 +47,7 @@ SET(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 set(OPENSSL_USE_STATIC_LIBS TRUE)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(THIRD_PARTY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/build_deps/_install)
+set(THIRD_PARTY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../nitro/build_deps/_install)
 
 message(STATUS "Current Cmake third party path: ${THIRD_PARTY_PATH}")
 
@@ -58,10 +56,7 @@ find_library(JSONCPP
     HINTS "${THIRD_PARTY_PATH}/lib"
 )
 
-find_library(TRANTOR
-    NAMES trantor
-    HINTS "${THIRD_PARTY_PATH}/lib"
-)
+find_package(Drogon CONFIG REQUIRED)
 
 if(NOT WIN32) # Linux
     # # Use pkg-config to find the SentencePiece library
@@ -98,14 +93,8 @@ link_directories(${PLUGINS_SRC_DIR})
 
 set(TENSORRT_LLM_LIB ${TOP_LEVEL_DIR}/cpp/include/)
 
-# main
-add_library(${TARGET} SHARED 
-    src/process_manager.cc
-    src/tensorrtllm_engine.cc
-)
-
 target_link_libraries(
-    ${TARGET} PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts ${SENTENCEPIECE} PRIVATE ${JSONCPP} ${TRANTOR} ${CMAKE_THREAD_LIBS_INIT} )
+    ${TARGET} PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts ${SENTENCEPIECE} PRIVATE ${JSONCPP} Drogon::Drogon ${CMAKE_THREAD_LIBS_INIT} )
 
 target_compile_features(${TARGET} PRIVATE cxx_std_17)
 target_compile_definitions(${TARGET} PUBLIC TOP_LEVEL_DIR="${TOP_LEVEL_DIR}")
