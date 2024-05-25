@@ -1,8 +1,13 @@
-#include "utils/nitro_utils.h"
+#include "src/models/chat_completion_request.h"
+#include "src/models/load_model_request.h"
+#include "src/utils/tensorrtllm_utils.h"
 #include <climits> // for PATH_MAX
-#include <drogon/HttpAppFramework.h>
-#include <drogon/drogon.h>
+#include <cstddef>
 #include <iostream>
+#include <json/value.h>
+#include <trantor/utils/Logger.h>
+
+#include "src/tensorrtllm_engine.h"
 
 #if defined(__APPLE__) && defined(__MACH__)
 #include <libgen.h> // for dirname()
@@ -17,57 +22,31 @@
 #error "Unsupported platform!"
 #endif
 
+using namespace tensorrtllm;
+
 int main(int argc, char* argv[])
 {
-    int thread_num = 1;
-    std::string host = "127.0.0.1";
-    int port = 3928;
-    std::string uploads_folder_path;
+    TensorrtllmEngine engine;
 
-    // Number of nitro threads
-    if (argc > 1)
-    {
-        thread_num = std::atoi(argv[1]);
-    }
+    model::LoadModelRequest mock_load_model;
+    mock_load_model.engine_path = "/root/nitro-tensorrt-llm/examples/llama/tllm_checkpoint_1gpu_fp8_hermes_engine";
+    mock_load_model.ctx_len = 512;
+    engine.LoadModelImpl(std::move(mock_load_model), nullptr);
+    LOG_DEBUG << "loadModel done!!!";
 
-    // Check for host argument
-    if (argc > 2)
-    {
-        host = argv[2];
-    }
-
-    // Check for port argument
-    if (argc > 3)
-    {
-        port = std::atoi(argv[3]); // Convert string argument to int
-    }
-
-    // Uploads folder path
-    if (argc > 4)
-    {
-        uploads_folder_path = argv[4];
-    }
-
-    int logical_cores = std::thread::hardware_concurrency();
-    int drogon_thread_num = std::thread::hardware_concurrency(); // temporarily set thread num to 1
-    nitro_utils::nitro_logo();
-#ifdef NITRO_VERSION
-    LOG_INFO << "Nitro version: " << NITRO_VERSION;
-#else
-    LOG_INFO << "Nitro version: undefined";
-#endif
-    LOG_INFO << "Server started, listening at: " << host << ":" << port;
-    LOG_INFO << "Please load your model";
-    drogon::app().addListener(host, port);
-    drogon::app().setThreadNum(drogon_thread_num);
-    if (!uploads_folder_path.empty())
-    {
-        LOG_INFO << "Drogon uploads folder is at: " << uploads_folder_path;
-        drogon::app().setUploadPath(uploads_folder_path);
-    }
-    LOG_INFO << "Number of thread is:" << drogon::app().getThreadNum();
-
-    drogon::app().run();
+    Json::Value asistant_message;
+    asistant_message["content"] = "Hello there";
+    asistant_message["role"] = "assistant";
+    Json::Value user_message;
+    user_message["content"] = "Write a long story about NVIDIA!!!!";
+    user_message["role"] = "user";
+    inferences::ChatCompletionRequest mock_chat_completion;
+    // mock_chat_completion.messages.append(asistant_message);
+    mock_chat_completion.messages.append(user_message);
+    mock_chat_completion.stream = true;
+    mock_chat_completion.max_tokens = 2048;
+    engine.HandleChatCompletionImpl(std::move(mock_chat_completion), nullptr);
+    LOG_DEBUG << "chat_completion done!!!";
 
     return 0;
 }
