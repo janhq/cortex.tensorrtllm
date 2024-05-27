@@ -49,25 +49,25 @@ void TensorrtllmEngine::HandleChatCompletion(
 // ### IMPLEMENTATION ####
 // #######################
 
-bool HandleMatch(std::string const& rawText, std::shared_ptr<InferenceState> infer_state) {
+bool HandleMatch(std::string const& rew_text, std::shared_ptr<InferenceState> infer_state) {
   if (infer_state->IsComplete()) {
     return false;
   }
   if (infer_state->stop_word_match_len == 0) {
-    if (rawText.find('<') != std::string::npos) { // Found "<" anywhere in the text
+    if (rew_text.find('<') != std::string::npos) { // Found "<" anywhere in the text
       infer_state->stop_word_match_len++; // Move to next state
-      infer_state->prev_text = rawText;
+      infer_state->prev_text = rew_text;
       return true;
     }
   }
-  else if (rawText == infer_state->sequence[infer_state->stop_word_match_len]) {
+  else if (rew_text == infer_state->sequence[infer_state->stop_word_match_len]) {
     infer_state->stop_word_match_len++; // Move to next state
-    infer_state->prev_text = rawText;
+    infer_state->prev_text = rew_text;
     return true;
   }
-  else if (infer_state->stop_word_match_len > 0 && rawText == infer_state->sequence[0]) {
+  else if (infer_state->stop_word_match_len > 0 && rew_text == infer_state->sequence[0]) {
     infer_state->stop_word_match_len = 1; // Restart from first match if sequence breaks but matches start
-    infer_state->prev_text = rawText;
+    infer_state->prev_text = rew_text;
     return true;
   }
   else {
@@ -140,6 +140,7 @@ void InferenceThread(
       std::string string_tok(text.begin() + infer_state->prev_pos, text.end());
       std::lock_guard<std::mutex> guard(infer_state->queue_mutex); // Protect access with a lock
       infer_state->texts_to_stream.push(string_tok);
+      ++infer_state->token_gen_count;
     }
     else if (infer_state->prev_pos >= text.size()) {
       infer_state->prev_pos = text.size();
@@ -148,6 +149,7 @@ void InferenceThread(
     if (finished) {
       std::lock_guard<std::mutex> guard(infer_state->queue_mutex); // Protect access with a lock
       infer_state->texts_to_stream.push("[DONE]");
+      LOG_INFO << "Cortex.tensorrtllm generated " << infer_state->token_gen_count << " tokens";
       return;
     }
     return;
@@ -212,59 +214,58 @@ void TensorrtllmEngine::HandleChatCompletionImpl(inferences::ChatCompletionReque
   std::thread inference_thread(InferenceThread, infer_state, input_ids_host, callback, this, sampling_config, input_len, outputLen);
   inference_thread.detach(); // Detach the thread to allow it to run independently
 
-  // auto chunked_content_provider = [this, infer_state](char* pBuffer, std::size_t nBuffSize) -> std::size_t
-  // {
-  //     if (!pBuffer)
-  //     {
-  //         LOG_INFO << "Connection closed or buffer is null. Reset context";
-  //         infer_state->isFinished = true;
-  //         return 0; // Indicate no more data to send
-  //     }
+  this->q = std::make_unique<trantor::ConcurrentTaskQueue>(1, request.model_id);
+  this->q->runTaskInQueue([cb = std::move(callback), infer_state]() {
+    while (true) { // Continuously check if the queue is not empty
+      std::unique_lock<std::mutex> lock(infer_state->queue_mutex); // Lock the queue for exclusive access
+      if (!infer_state->texts_to_stream.empty()) {
+        std::string rew_text = infer_state->texts_to_stream.front();
+        infer_state->texts_to_stream.pop();
+        if (HandleMatch(rew_text, infer_state) && rew_text != "[DONE]") {
+            continue;
+        };
 
-  //     if (infer_state->isFinished)
-  //     {
-  //         return 0;
-  //     }
+        if (rew_text == "[DONE]") {
+          const std::string str
+              = "data: " + tensorrtllm_utils::CreateReturnJson(tensorrtllm_utils::GenerateRandomString(20), "_", "", "stop")
+              + "\n\n" + "data: [DONE]" + "\n\n";
 
-  while (true) { // Continuously check if the queue is not empty
-    std::unique_lock<std::mutex> lock(infer_state->queue_mutex); // Lock the queue for exclusive access
-    if (!infer_state->texts_to_stream.empty()) {
-      std::string rawText = infer_state->texts_to_stream.front();
-      infer_state->texts_to_stream.pop();
-      if (HandleMatch(rawText, infer_state) && rawText != "[DONE]") {
-          continue;
-      };
+          infer_state->is_finished = true;
 
-      if (rawText == "[DONE]") {
-        const std::string str
-            = "data: " + tensorrtllm_utils::CreateReturnJson(tensorrtllm_utils::GenerateRandomString(20), "_", "", "stop")
-            + "\n\n" + "data: [DONE]" + "\n\n";
+          Json::Value resp_data;
+          resp_data["data"] = str;
+          Json::Value status;
+          status["is_done"] = true;
+          status["has_error"] = false;
+          status["is_stream"] = true;
+          status["status_code"] = k200OK;
+          cb(std::move(status), std::move(resp_data));
+          break;
+        }
+        const std::string text_to_stream
+            = "data: " + tensorrtllm_utils::CreateReturnJson(tensorrtllm_utils::GenerateRandomString(20), "_", rew_text) + "\n\n";
 
-        // std::size_t nRead = std::min(str.size(), nBuffSize);
-        // memcpy(pBuffer, str.data(), nRead);
-        infer_state->is_finished = true;
-        break;
+        lock.unlock(); // Unlock as soon as possible
+        infer_state->prev_text = rew_text;
+        
+        Json::Value resp_data;
+        resp_data["data"] = text_to_stream;
+        Json::Value status;
+        status["is_done"] = false;
+        status["has_error"] = false;
+        status["is_stream"] = true;
+        status["status_code"] = k200OK;
+        cb(std::move(status), std::move(resp_data));
+        continue;;
       }
-      const std::string textToStream
-          = "data: " + tensorrtllm_utils::CreateReturnJson(tensorrtllm_utils::GenerateRandomString(20), "_", rawText) + "\n\n";
-      lock.unlock(); // Unlock as soon as possible
-
-      // Ensure we do not exceed the buffer size. Truncate if necessary.
-      // std::size_t bytesToWrite = std::min(nBuffSize, textToStream.size());
-      // std::memcpy(pBuffer, textToStream.data(), bytesToWrite);
-      infer_state->prev_text = rawText;
-      fprintf(stderr, "%s", rawText.c_str());
-      continue;
+      else {
+        // If the queue is empty, release the lock and wait before trying again
+        lock.unlock();
+      }
     }
-    else {
-      // If the queue is empty, release the lock and wait before trying again
-      lock.unlock();
-    }
-  }
-  // };
+  });
 
-  // auto streamResponse = nitro_utils::nitroStreamResponse(chunked_content_provider);
-  // callback(streamResponse);
+  LOG_INFO << "Inference completed";
   return;
 };
 

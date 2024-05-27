@@ -44,7 +44,14 @@ set(OPENSSL_USE_STATIC_LIBS TRUE)
 
 # Enable pkg-config support in CMake
 find_package(PkgConfig REQUIRED)
-find_package(Drogon CONFIG REQUIRED)
+find_library(TRANTOR
+    NAMES trantor
+    HINTS "${CMAKE_PREFIX_PATH}/lib"
+)
+find_library(JSONCPP
+    NAMES jsoncpp
+    HINTS "${CMAKE_PREFIX_PATH}/lib"
+)
 
 # Use pkg-config to find the SentencePiece library
 
@@ -74,26 +81,15 @@ add_subdirectory(${CXXOPTS_SRC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cxxopts)
 # add_executable(engine main.cc)
 add_library(engine SHARED src/tensorrtllm_engine.cc)
 target_link_libraries(
-  engine PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE Drogon::Drogon ${CMAKE_THREAD_LIBS_INIT} )
-
+  engine PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE ${JSONCPP} ${TRANTOR} ${CMAKE_THREAD_LIBS_INIT} )
 
 target_compile_features(engine PRIVATE cxx_std_17)
 target_compile_definitions(engine PUBLIC TOP_LEVEL_DIR="${TOP_LEVEL_DIR}")
 
-
-
-# aux_source_directory(controllers CTL_SRC)
-# aux_source_directory(common COMMON_SRC)
-# aux_source_directory(context CONTEXT_SRC)
-# aux_source_directory(models MODEL_SRC)
 aux_source_directory(src SRC)
 
 target_include_directories(engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-# ${CMAKE_CURRENT_SOURCE_DIR}/models)
-# target_sources(engine PRIVATE ${CTL_SRC} ${COMMON_SRC} ${CONTEXT_SRC})
 target_sources(engine PRIVATE ${SRC})
 
 
 add_dependencies(engine_proj engine)
-
-add_subdirectory(examples/server)

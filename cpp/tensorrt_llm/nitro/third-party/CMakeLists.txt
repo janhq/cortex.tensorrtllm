@@ -93,9 +93,6 @@ ExternalProject_Add(
 include_directories(${THIRD_PARTY_INSTALL_PATH}/include)
 link_directories(${THIRD_PARTY_INSTALL_PATH}/lib)
 # Optionally link or add dependencies to your targets
-add_dependencies(drogon c-ares jsoncpp brotli)
+add_dependencies(trantor c-ares jsoncpp brotli)
 
-if(ZLIB_USE_STATIC_LIBS)
-    add_dependencies(drogon zlib)
-endif()
 # target_link_libraries(<your-target> ...)

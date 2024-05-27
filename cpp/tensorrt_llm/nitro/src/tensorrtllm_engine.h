@@ -20,6 +20,7 @@
 #include "tensorrt_llm/runtime/gptSession.h"
 #include "tensorrt_llm/runtime/samplingConfig.h"
 #include "tensorrt_llm/runtime/tllmLogger.h"
+#include "trantor/utils/ConcurrentTaskQueue.h"
 #include "trantor/utils/Logger.h"
 
 
@@ -72,6 +73,7 @@ struct InferenceState {
     std::mutex queue_mutex; // Mutex to protect access to textsToStream
     size_t stop_word_match_len = 0;
     std::vector<std::string> sequence{"<", "|", "im", "_", "end", "|", ">"};
+    int token_gen_count = 0;
 
     void Reset() {
         stop_word_match_len = 0;
@@ -110,6 +112,7 @@ class TensorrtllmEngine : public EngineI {
   void LoadModelImpl(model::LoadModelRequest&& request, std::function<void(Json::Value&&, Json::Value&&)>&& callback);
   void HandleChatCompletionImpl(inferences::ChatCompletionRequest&& request, std::function<void(Json::Value&&, Json::Value&&)>&& callback);  
  private:
+  std::unique_ptr<trantor::ConcurrentTaskQueue> q;
   GptSession::Config session_config{1, 1, 1};
   SamplingConfig sampling_config{1};
   std::unique_ptr<ModelConfig> model_config;

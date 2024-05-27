@@ -1,3 +1,3 @@
-cmake -S ./nitro_deps -B ./build_deps/nitro_deps
-make -C ./build_deps/nitro_deps -j 10
-rm -rf ./build_deps/nitro_deps
+cmake -S ./third-party -B ./build_deps/third-party
+make -C ./build_deps/third-party -j 10
+rm -rf ./build_deps/third-party
