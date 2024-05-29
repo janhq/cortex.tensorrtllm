@@ -26,11 +26,30 @@ endif
 
 build-example-server:
 ifeq ($(OS),Windows_NT)
-	@powershell -Command "mkdir -p .\examples\server\build\engines\cortex.python; cd .\examples\server\build; cmake .. $(CMAKE_EXTRA_FLAGS); cmake --build . --config Release; cp -r ..\..\..\build\python .\Release\engines\cortex.python\python"
 else 
 	@cd examples/server && \
 	mkdir -p build && cd build && \
 	cmake .. && cmake --build . --config Release -j12
+endif
+
+package:
+ifeq ($(OS),Windows_NT)
+else
+	@mkdir -p cortex.tensorrt-llm && \
+	cp ../../build/tensorrt_llm/cortex.tensorrt-llm/libengine.$(shell uname | tr '[:upper:]' '[:lower:]' | sed 's/darwin/dylib/;s/linux/so/') cortex.tensorrt-llm && \
+	cp /usr/local/cuda-12.4/targets/x86_64-linux/lib/libcublas.so.12 cortex.tensorrt-llm && \
+	cp /usr/local/cuda-12.4/targets/x86_64-linux/lib/libcublas.so.12.4.2.65 cortex.tensorrt-llm && \
+	cp /usr/local/cuda-12.4/targets/x86_64-linux/lib/libcublasLt.so.12 cortex.tensorrt-llm && \
+	cp /usr/local/cuda-12.4/targets/x86_64-linux/lib/libcublasLt.so.12.4.2.65 cortex.tensorrt-llm && \
+	cp /usr/local/tensorrt/targets/x86_64-linux-gnu/lib/libnvinfer.so.10 cortex.tensorrt-llm && \
+	cp /usr/local/tensorrt/targets/x86_64-linux-gnu/lib/libnvinfer.so.10.0.1 cortex.tensorrt-llm && \
+	cp /usr/local/lib/python3.10/dist-packages/tensorrt_llm/libs/libnvinfer_plugin_tensorrt_llm.so cortex.tensorrt-llm && \
+	cp /usr/local/lib/python3.10/dist-packages/tensorrt_llm/libs/libnvinfer_plugin_tensorrt_llm.so.10 cortex.tensorrt-llm && \
+	cp /usr/local/lib/python3.10/dist-packages/tensorrt_llm/libs/libtensorrt_llm.so cortex.tensorrt-llm && \
+	cp /usr/local/lib/python3.10/dist-packages/tensorrt_llm/libs/libtensorrt_llm_nvrtc_wrapper.so cortex.tensorrt-llm && \
+	cp /usr/lib/x86_64-linux-gnu/libnccl.so.2 cortex.tensorrt-llm && \
+	cp /usr/lib/x86_64-linux-gnu/libnccl.so.2.20.5 cortex.tensorrt-llm && \
+	tar -czvf cortex.tensorrt-llm.tar.gz cortex.tensorrt-llm
 endif
 
 run-e2e-test:
@@ -38,7 +57,6 @@ ifeq ($(RUN_TESTS),false)
 	@echo "Skipping tests"
 else
 ifeq ($(OS),Windows_NT)
-	@powershell -Command "mkdir -p .\examples\server\build\Release\engines\cortex.python; cd examples\server\build\Release; cp ..\..\..\..\build\Release\engine.dll engines\cortex.python; ..\..\..\..\.github\scripts\e2e-test-server-windows.bat server.exe ..\..\..\..\$(PYTHON_FILE_EXECUTION_PATH);"
 else
 	mkdir -p examples/server/build/engines/cortex.tensorrt-llm;
 	cp ../../build/tensorrt_llm/cortex.tensorrt-llm/libengine.so examples/server/build/engines/cortex.tensorrt-llm;

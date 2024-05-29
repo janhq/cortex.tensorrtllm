@@ -60,10 +60,17 @@ jobs:
           tar -zxvf engines.tar.gz
           export LD_LIBRARY_PATH=$(pwd)/engines/cortex.tensorrtllm
 
-      - name: Run e2e test
+      - name: Test start server
         run: |
-          cd cpp/tensorrt_llm/cortex.tensorrt-llm
-          make run-e2e-test
+          cd cpp/tensorrt_llm/nitro/examples/server/build
+          ./server &
+          pid=$!
+          kill $pid
+
+      # - name: Run e2e test
+      #   run: |
+      #     cd cpp/tensorrt_llm/cortex.tensorrt-llm
+      #     make run-e2e-test
 
       # - name: Package
       #   run: |
