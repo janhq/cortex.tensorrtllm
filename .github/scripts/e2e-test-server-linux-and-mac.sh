@@ -13,7 +13,7 @@ CORTEX_TENSORRTLLM_PATH=$1
 # Fixed these parameters for testing
 DOWNLOAD_MODEL_URL=https://huggingface.co/HHrecode/tllm_checkpoint_1gpu_fp8_hermes_engine/resolve/main/tllm_checkpoint_1gpu_fp8_hermes_engine.tar.gz
 MODEL_DIR_PATH=$CORTEX_TENSORRTLLM_PATH/examples/llama/tllm_checkpoint_1gpu_fp8_hermes_engine/
-BINARY_DIR_PATH=$CORTEX_TENSORRTLLM_PATH/cpp/tensorrt_llm/nitro/examples/server/build/
+BINARY_DIR_PATH=$CORTEX_TENSORRTLLM_PATH/cpp/tensorrt_llm/cortex.tensorrtllm/examples/server/build/
 BINARY_EXEC_NAME=server
 
 rm /tmp/load-llm-model-res.log /tmp/completion-res.log /tmp/server.log

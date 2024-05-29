@@ -58,4 +58,4 @@ inline std::string CreateReturnJson(std::string const& id, std::string const& mo
     return Json::writeString(writer, root);
 }
 
-} // namespace nitro_utils
+} // namespace tensorrtllm_utils

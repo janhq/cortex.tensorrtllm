@@ -133,7 +133,7 @@ void InferenceThread(
     RemoveId(output_idsHostDecode, 0);
     RemoveId(output_idsHostDecode, 32000);
     RemoveId(output_idsHostDecode, 32001);
-    std::string text = self->nitro_tokenizer->Decode(output_idsHostDecode);
+    std::string text = self->cortex_tokenizer->Decode(output_idsHostDecode);
 
     if (infer_state->prev_pos >= 0 && infer_state->prev_pos < text.size()) {
       // Valid prev_pos, proceed with slicing the string from prev_pos to the end
@@ -197,7 +197,7 @@ void TensorrtllmEngine::HandleChatCompletionImpl(inferences::ChatCompletionReque
 
   std::shared_ptr<InferenceState> infer_state = std::make_shared<InferenceState>();
 
-  std::vector<int32_t> input_ids_host = nitro_tokenizer->Encode(formatted_input);
+  std::vector<int32_t> input_ids_host = cortex_tokenizer->Encode(formatted_input);
   int const input_len = input_ids_host.size();
   int const outputLen = request.max_tokens - input_len;
 
@@ -286,7 +286,7 @@ void TensorrtllmEngine::LoadModelImpl(model::LoadModelRequest&& request, std::fu
     std::filesystem::path json_file_name = engine_dir / "config.json";
     std::filesystem::path tokenizerModelName = engine_dir / "tokenizer.model";
 
-    nitro_tokenizer = std::make_unique<Tokenizer>(tokenizerModelName.string());
+    cortex_tokenizer = std::make_unique<Tokenizer>(tokenizerModelName.string());
     LOG_INFO << "Loaded tokenizer";
 
     auto const json = GptJsonConfig::parse(json_file_name);
@@ -322,7 +322,7 @@ void TensorrtllmEngine::Destroy(std::shared_ptr<Json::Value> json_body, std::fun
 };
 
 extern "C" {
-EngineI* get_engine() {
+CortexTensorrtllmEngineI* get_engine() {
   return new TensorrtllmEngine();
 }
 }

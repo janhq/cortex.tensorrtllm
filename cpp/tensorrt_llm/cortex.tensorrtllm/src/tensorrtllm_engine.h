@@ -8,7 +8,7 @@
 #include <string>
 
 #include "NvInfer.h"
-#include "base/cortex-common/enginei.h"
+#include "base/cortex-common/cortextensorrtllmi.h"
 #include "models/chat_completion_request.h"
 #include "models/load_model_request.h"
 #include "sentencepiece_processor.h"
@@ -87,7 +87,7 @@ struct InferenceState {
 
 namespace tensorrtllm {
 
-class TensorrtllmEngine : public EngineI {
+class TensorrtllmEngine : public CortexTensorrtllmEngineI {
  public:
   ~TensorrtllmEngine() final;
   // ### Interface ###
@@ -107,7 +107,7 @@ class TensorrtllmEngine : public EngineI {
   GenerationInput::TensorPtr GetTensorChatMLStopWordList();
 
   std::unique_ptr<GptSession> gpt_session;
-  std::unique_ptr<Tokenizer> nitro_tokenizer;
+  std::unique_ptr<Tokenizer> cortex_tokenizer;
 
   void LoadModelImpl(model::LoadModelRequest&& request, std::function<void(Json::Value&&, Json::Value&&)>&& callback);
   void HandleChatCompletionImpl(inferences::ChatCompletionRequest&& request, std::function<void(Json::Value&&, Json::Value&&)>&& callback);  

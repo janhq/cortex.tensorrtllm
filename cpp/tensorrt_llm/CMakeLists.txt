@@ -305,6 +305,6 @@ endif()
 
 add_subdirectory(plugins)
 
-if(BUILD_NITRO)
-  add_subdirectory(nitro)
+if(BUILD_CORTEX-TENSORRTLLM)
+  add_subdirectory(cortex.tensorrtllm)
 endif()

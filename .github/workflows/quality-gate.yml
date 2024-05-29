@@ -38,22 +38,22 @@ jobs:
       - name: Install dependencies
         run: |
           apt install uuid-dev
-          cd cpp/tensorrt_llm/nitro
+          cd cpp/tensorrt_llm/cortex.tensorrtllm
           make install-dependencies
 
       - name: Build engine 
         run: |
-          cd cpp/tensorrt_llm/nitro
+          cd cpp/tensorrt_llm/cortex.tensorrtllm
           make build-engine
 
       - name: Build example server
         run: |
-          cd cpp/tensorrt_llm/nitro
+          cd cpp/tensorrt_llm/cortex.tensorrtllm
           make build-example-server
 
       - name: Run e2e test
         run: |
-          cd cpp/tensorrt_llm/nitro
+          cd cpp/tensorrt_llm/cortex.tensorrtllm
           make run-e2e-test
 
       # - name: Package
