@@ -87,7 +87,7 @@ struct InferenceState {
 
 namespace tensorrtllm {
 
-class TensorrtllmEngine : public CortexTensorrtllmEngineI {
+class TensorrtllmEngine : public CortexTensorrtLlmEngineI {
  public:
   ~TensorrtllmEngine() final;
   // ### Interface ###

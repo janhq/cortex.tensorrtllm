@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
   };
 
   // Use POST since httplib does not read request body for GET method
-  svr->Post("/inferences/tensorrtllm/loadmodel", handle_load_model);
+  svr->Post("/inferences/tensorrt-llm/loadmodel", handle_load_model);
   svr->Post("/v1/chat/completions", handle_completions);
 
   LOG_INFO << "HTTP server listening: " << hostname << ":" << port;

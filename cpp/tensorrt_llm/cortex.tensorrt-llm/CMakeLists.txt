@@ -79,7 +79,7 @@ add_subdirectory(${CXXOPTS_SRC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cxxopts)
 
 # main
 # add_executable(engine main.cc)
-add_library(engine SHARED src/tensorrtllm_engine.cc)
+add_library(engine SHARED src/tensorrt-llm_engine.cc)
 target_link_libraries(
   engine PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE ${JSONCPP} ${TRANTOR} ${CMAKE_THREAD_LIBS_INIT} )
 

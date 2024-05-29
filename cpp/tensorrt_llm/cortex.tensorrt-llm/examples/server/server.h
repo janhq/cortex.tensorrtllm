@@ -10,8 +10,8 @@
 class Server {
  public:
   Server() {
-    dylib_ = std::make_unique<dylib>("./engines/cortex.tensorrtllm", "engine");
-    auto func = dylib_->get_function<CortexTensorrtllmEngineI*()>("get_engine");
+    dylib_ = std::make_unique<dylib>("./engines/cortex.tensorrt-llm", "engine");
+    auto func = dylib_->get_function<CortexTensorrtLlmEngineI*()>("get_engine");
     engine_ = func();
   }
 
@@ -23,7 +23,7 @@ class Server {
 
  public:
   std::unique_ptr<dylib> dylib_;
-  EngCortexTensorrtllmEngineIineI* engine_;
+  CortexTensorrtLlmEngineI* engine_;
 
   struct SyncQueue {
     void push(std::pair<Json::Value, Json::Value>&& p) {

@@ -13,7 +13,7 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 # C++17
-# cortex.tensorrtllm init
+# cortex.tensorrt-llm init
 cmake_minimum_required(VERSION 3.5)
 project(server)
 find_package(Threads REQUIRED)

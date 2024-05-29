@@ -38,22 +38,22 @@ jobs:
       - name: Install dependencies
         run: |
           apt install uuid-dev
-          cd cpp/tensorrt_llm/cortex.tensorrtllm
+          cd cpp/tensorrt_llm/cortex.tensorrt-llm
           make install-dependencies
 
       - name: Build engine 
         run: |
-          cd cpp/tensorrt_llm/cortex.tensorrtllm
+          cd cpp/tensorrt_llm/cortex.tensorrt-llm
           make build-engine
 
       - name: Build example server
         run: |
-          cd cpp/tensorrt_llm/cortex.tensorrtllm
+          cd cpp/tensorrt_llm/cortex.tensorrt-llm
           make build-example-server
 
       - name: Run e2e test
         run: |
-          cd cpp/tensorrt_llm/cortex.tensorrtllm
+          cd cpp/tensorrt_llm/cortex.tensorrt-llm
           make run-e2e-test
 
       # - name: Package
@@ -63,5 +63,5 @@ jobs:
       # - name: Upload Artifact
       #   uses: actions/upload-artifact@v2
       #   with:
-      #     name: cortex.tensorrtllm-${{ matrix.os }}-${{ matrix.name }}
-      #     path: ./cortex.tensorrtllm.tar.gz
+      #     name: cortex.tensorrt-llm-${{ matrix.os }}-${{ matrix.name }}
+      #     path: ./cortex.tensorrt-llm.tar.gz

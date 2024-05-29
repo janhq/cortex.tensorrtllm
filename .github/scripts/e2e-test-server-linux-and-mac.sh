@@ -1,11 +1,11 @@
 #!/bin/bash
 
 ## Example run command
-# ./.github/scripts/e2e-test-server-linux-and-mac.sh '/home/jan/cortex.tensorrtllm/'
+# ./.github/scripts/e2e-test-server-linux-and-mac.sh '/home/jan/cortex.tensorrt-llm/'
 
 # Check for required arguments
 if [[ $# -ne 1 ]]; then
-    echo "Usage: $0 <path_to_cortex-tensorrtllm>"
+    echo "Usage: $0 <path_to_cortex-tensorrt-llm>"
     exit 1
 fi
 
@@ -13,7 +13,7 @@ CORTEX_TENSORRTLLM_PATH=$1
 # Fixed these parameters for testing
 DOWNLOAD_MODEL_URL=https://huggingface.co/HHrecode/tllm_checkpoint_1gpu_fp8_hermes_engine/resolve/main/tllm_checkpoint_1gpu_fp8_hermes_engine.tar.gz
 MODEL_DIR_PATH=$CORTEX_TENSORRTLLM_PATH/examples/llama/tllm_checkpoint_1gpu_fp8_hermes_engine/
-BINARY_DIR_PATH=$CORTEX_TENSORRTLLM_PATH/cpp/tensorrt_llm/cortex.tensorrtllm/examples/server/build/
+BINARY_DIR_PATH=$CORTEX_TENSORRTLLM_PATH/cpp/tensorrt_llm/cortex.tensorrt-llm/examples/server/build/
 BINARY_EXEC_NAME=server
 
 rm /tmp/load-llm-model-res.log /tmp/completion-res.log /tmp/server.log
@@ -49,7 +49,7 @@ fi
 sleep 2
 
 # Run the curl commands
-response1=$(curl --connect-timeout 60 -o /tmp/load-llm-model-res.log -s -w "%{http_code}" --location "http://127.0.0.1:$PORT/inferences/tensorrtllm/loadmodel" \
+response1=$(curl --connect-timeout 60 -o /tmp/load-llm-model-res.log -s -w "%{http_code}" --location "http://127.0.0.1:$PORT/inferences/tensorrt-llm/loadmodel" \
     --header 'Content-Type: application/json' \
     --data '{
         "engine_path": "'$MODEL_DIR_PATH'",

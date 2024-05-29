@@ -1,4 +1,4 @@
-#include "tensorrtllm_engine.h"
+#include "tensorrt-llm_engine.h"
 #include "models/chat_completion_request.h"
 #include "nlohmann/json.hpp"
 
@@ -6,7 +6,7 @@
 #include "tensorrt_llm/runtime/generationInput.h"
 #include "tensorrt_llm/runtime/generationOutput.h"
 #include "tensorrt_llm/runtime/samplingConfig.h"
-#include "utils/tensorrtllm_utils.h"
+#include "utils/tensorrt-llm_utils.h"
 #include "json/writer.h"
 #include <algorithm>
 #include <cstdint>
@@ -322,7 +322,7 @@ void TensorrtllmEngine::Destroy(std::shared_ptr<Json::Value> json_body, std::fun
 };
 
 extern "C" {
-CortexTensorrtllmEngineI* get_engine() {
+CortexTensorrtLlmEngineI* get_engine() {
   return new TensorrtllmEngine();
 }
 }

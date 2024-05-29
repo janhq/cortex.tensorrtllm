@@ -5,9 +5,9 @@
 
 #include "json/value.h"
 
-class CortexTensorrtllmEngineI {
+class CortexTensorrtLlmEngineI {
  public: 
-  virtual ~CortexTensorrtllmEngineI() {}
+  virtual ~CortexTensorrtLlmEngineI() {}
 
   virtual void HandleChatCompletion(
       std::shared_ptr<Json::Value> jsonBody,
