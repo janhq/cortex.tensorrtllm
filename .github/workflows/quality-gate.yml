@@ -37,7 +37,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apt install uuid-dev
+          sudo apt-get install uuid-dev
           strings /usr/lib/x86_64-linux-gnu/libc.so.6 | grep GLIBC_2.3
           cd cpp/tensorrt_llm/cortex.tensorrt-llm
           make install-dependencies
