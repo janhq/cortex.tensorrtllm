@@ -43,26 +43,26 @@ jobs:
           cd cpp/tensorrt_llm/cortex.tensorrt-llm
           make install-dependencies
 
-      # - name: Build engine 
-      #   run: |
-      #     cd cpp/tensorrt_llm/cortex.tensorrt-llm
-      #     make build-engine
+      - name: Build engine 
+        run: |
+          cd cpp/tensorrt_llm/cortex.tensorrt-llm
+          make build-engine
 
       - name: Build example server
         run: |
           cd cpp/tensorrt_llm/cortex.tensorrt-llm
           make build-example-server
 
-      - name: Download engine
-        run: |
-          cd cpp/tensorrt_llm/cortex.tensorrt-llm/examples/server/build
-          wget https://huggingface.co/HHrecode/tllm_checkpoint_1gpu_fp8_hermes_engine/resolve/main/engines.tar.gz
-          tar -zxvf engines.tar.gz
-          export LD_LIBRARY_PATH=$(pwd)/engines/cortex.tensorrtllm
+      # - name: Download engine
+      #   run: |
+      #     cd cpp/tensorrt_llm/cortex.tensorrt-llm/examples/server/build
+      #     wget https://huggingface.co/HHrecode/tllm_checkpoint_1gpu_fp8_hermes_engine/resolve/main/engines.tar.gz
+      #     tar -zxvf engines.tar.gz
+      #     export LD_LIBRARY_PATH=$(pwd)/engines/cortex.tensorrtllm
 
       - name: Test start server
         run: |
-          cd cpp/tensorrt_llm/nitro/examples/server/build
+          cd cpp/tensorrt_llm/cortex.tensorrt-llm/examples/server/build
           ./server &
           pid=$!
           kill $pid
