@@ -20,6 +20,7 @@ jobs:
             run-e2e: false
             s3-key-prefix: "windows"
             sccache-conf-path: 'C:\sccache.conf'
+            ccache-dir: 'C:\ccache'
     permissions:
       contents: write
     steps:
@@ -43,12 +44,19 @@ jobs:
       - name: Install choco on Windows
         if: runner.os == 'Windows'
         run: |
-          choco install make pkgconfiglite -y
+          choco install make pkgconfiglite ccache -y
+
+      - name: create ccache folder
+        continue-on-error: true
+        run: |
+          mkdir -p ${{ matrix.ccache-dir }}
 
       - name: Build Dependencies
         working-directory: cpp
         run: |
           make build-deps
+        env:
+          CCACHE_DIR: ${{ matrix.ccache-dir }}
 
       - name: Build
         working-directory: cpp
