@@ -29,7 +29,7 @@ endif
 # Build the Cortex engine
 build:
 ifeq ($(OS),Windows_NT)
-	@powershell -Command "& 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64; mkdir -p build; cd build; cmake -GNinja -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded -DCMAKE_POLICY_CMP0141=NEW -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache -DCMAKE_BUILD_TYPE='Release' -DBUILD_PYT='OFF' -DBUILD_PYBIND='OFF' -DNVTX_DISABLE='ON' '-DENABLE_MULTI_DEVICE=0' '-DCMAKE_CUDA_COMPILER=C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin/nvcc.exe' '-DBUILD_NITRO=ON' -DBUILD_BENCHMARKS=OFF '-DBUILD_TESTS=OFF' -DTRT_LIB_DIR=C:/workspace/TensorRT-10.0.1.6//lib -DTRT_INCLUDE_DIR=C:/workspace/TensorRT-10.0.1.6//include  ..; cmake --build . --parallel 2 --config Release;"
+	@powershell -Command "& 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64; mkdir -p build; cd build; cmake -GNinja -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded -DCMAKE_POLICY_CMP0141=NEW -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache -DCMAKE_BUILD_TYPE='Release' -DBUILD_PYT='OFF' -DBUILD_PYBIND='OFF' -DNVTX_DISABLE='ON' -DCMAKE_CUDA_ARCHITECTURES='86-real;89-real;90-real' '-DENABLE_MULTI_DEVICE=0' '-DCMAKE_CUDA_COMPILER=C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin/nvcc.exe' '-DBUILD_NITRO=ON' -DBUILD_BENCHMARKS=OFF '-DBUILD_TESTS=OFF' -DTRT_LIB_DIR=C:/workspace/TensorRT-10.0.1.6//lib -DTRT_INCLUDE_DIR=C:/workspace/TensorRT-10.0.1.6//include  ..; cmake --build . --parallel 2 --config Release;"
 else
 	@./install_deps.sh;
 	@mkdir -p build && cd build; \
