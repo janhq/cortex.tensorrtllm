@@ -18,7 +18,7 @@ all:
 # Build the Cortex engine
 build-deps:
 ifeq ($(OS),Windows_NT)
-	@powershell -Command "& 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64; cd tensorrt_llm/nitro; cmake -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -S ./nitro_deps -B ./build_deps/nitro_deps; cmake --build ./build_deps/nitro_deps --config Release -j4;"
+	@powershell -Command "& 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64; cd tensorrt_llm/nitro; cmake -S ./nitro_deps -B ./build_deps/nitro_deps; cmake --build ./build_deps/nitro_deps --config Release -j4;"
 else
 	@./install_deps.sh;
 	@mkdir -p build && cd build; \
