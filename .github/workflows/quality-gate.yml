@@ -70,6 +70,7 @@ jobs:
       
       - name: Clean
         if: always()
+        continue-on-error: true
         run: |
           sccache --stop-server
           rm ${{ matrix.sccache-conf-path }}
