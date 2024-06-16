@@ -190,7 +190,7 @@ set(TRTLLM_LINK_LIBS
     ${CUBLASLT_LIB}
     ${CMAKE_DL_LIBS}
     ${MPI_C_LIBRARIES}
-    ${NCCL_LIB}
+    # ${NCCL_LIB}
     ${TRT_LIB}
     common_src
     kernels_src

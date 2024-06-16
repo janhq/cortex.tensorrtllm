@@ -120,5 +120,5 @@ target_link_libraries(
   ${CUDA_RT_LIB}
   ${CMAKE_DL_LIBS}
   ${MPI_C_LIBRARIES}
-  ${NCCL_LIB}
+  # ${NCCL_LIB}
   ${SHARED_TARGET})
