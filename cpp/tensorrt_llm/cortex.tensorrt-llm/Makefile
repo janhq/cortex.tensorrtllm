@@ -7,7 +7,8 @@ all:
 
 install-dependencies:
 ifeq ($(OS),Windows_NT) # Windows
-	cmd /C install_deps.bat
+	@powershell -Command "cmake -S ./third-party -B ./build_deps/third-party;"
+	@powershell -Command "cmake --build ./build_deps/third-party --config Release -j4;"
 else  # Unix-like systems (Linux and MacOS)
 	bash ./install_deps.sh
 endif

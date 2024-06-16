@@ -42,12 +42,6 @@ message(STATUS "Current Cmake Prefix Path of CORTEX: ${CMAKE_PREFIX_PATH}")
 set(OPENSSL_USE_STATIC_LIBS TRUE)
 
 
-# Enable pkg-config support in CMake
-find_package(PkgConfig REQUIRED)
-find_library(TRANTOR
-    NAMES trantor
-    HINTS "${CMAKE_PREFIX_PATH}/lib"
-)
 find_library(JSONCPP
     NAMES jsoncpp
     HINTS "${CMAKE_PREFIX_PATH}/lib"
@@ -56,6 +50,12 @@ find_library(JSONCPP
 # Use pkg-config to find the SentencePiece library
 
 if(NOT WIN32) # Linux
+  # Enable pkg-config support in CMake
+  find_package(PkgConfig REQUIRED)
+  find_library(TRANTOR
+      NAMES trantor
+      HINTS "${CMAKE_PREFIX_PATH}/lib"
+  )
   # Use pkg-config to find the SentencePiece library
   pkg_search_module(SENTENCEPIECE REQUIRED sentencepiece)
 else() # Windows
@@ -77,8 +77,6 @@ add_custom_target(engine_proj)
 set(CXXOPTS_SRC_DIR ${PROJECT_SOURCE_DIR}/../3rdparty/cxxopts)
 add_subdirectory(${CXXOPTS_SRC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cxxopts)
 
-# main
-# add_executable(engine main.cc)
 add_library(engine SHARED src/tensorrt-llm_engine.cc)
 target_link_libraries(
   engine PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE ${JSONCPP} ${TRANTOR} ${CMAKE_THREAD_LIBS_INIT} )
