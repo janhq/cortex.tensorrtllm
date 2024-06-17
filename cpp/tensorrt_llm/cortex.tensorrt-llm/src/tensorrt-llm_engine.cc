@@ -309,14 +309,14 @@ void TensorrtllmEngine::LoadModel(std::shared_ptr<Json::Value> json_body, std::f
 
     std::filesystem::path tokenizer_model_name = model_dir / "tokenizer.model";
     cortex_tokenizer = std::make_unique<Tokenizer>(tokenizer_model_name.string());
-    LOG_INFO << "Loaded tokenizer from " << tokenizer_model_name;
+    LOG_INFO << "Loaded tokenizer from " << tokenizer_model_name.string();
 
     std::filesystem::path json_file_name = model_dir / "config.json";
     auto json = GptJsonConfig::parse(json_file_name);
     auto config = json.getModelConfig();
     model_config = std::make_unique<GptModelConfig>(config);
     auto world_config = WorldConfig::mpi(1, json.getTensorParallelism(), json.getPipelineParallelism());
-    LOG_INFO << "Loaded config from " << json_file_name;
+    LOG_INFO << "Loaded config from " << json_file_name.string();
     // auto dtype = model_config->getDataType();
 
     // Currently doing fixed session config
@@ -335,7 +335,7 @@ void TensorrtllmEngine::LoadModel(std::shared_ptr<Json::Value> json_body, std::f
     }
 
     // Model loaded successfully
-    LOG_INFO << "Model " << model_id_ << " loaded successfully from path " << model_path;
+    LOG_INFO << "Model " << model_id_ << " loaded successfully from path " << model_path.string();
     Json::Value json_resp;
     json_resp["message"] = "Model loaded successfully";
     Json::Value status_resp;
