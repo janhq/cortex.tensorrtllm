@@ -41,9 +41,6 @@ message(STATUS "Current Cmake Prefix Path of CORTEX: ${CMAKE_PREFIX_PATH}")
 
 set(OPENSSL_USE_STATIC_LIBS TRUE)
 
-
-# Enable pkg-config support in CMake
-find_package(PkgConfig REQUIRED)
 find_library(TRANTOR
     NAMES trantor
     HINTS "${CMAKE_PREFIX_PATH}/lib"
@@ -56,6 +53,8 @@ find_library(JSONCPP
 # Use pkg-config to find the SentencePiece library
 
 if(NOT WIN32) # Linux
+  # Enable pkg-config support in CMake
+  find_package(PkgConfig REQUIRED)
   # Use pkg-config to find the SentencePiece library
   pkg_search_module(SENTENCEPIECE REQUIRED sentencepiece)
 else() # Windows
