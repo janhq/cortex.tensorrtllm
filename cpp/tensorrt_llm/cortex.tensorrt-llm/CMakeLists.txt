@@ -47,15 +47,16 @@ find_library(JSONCPP
     HINTS "${CMAKE_PREFIX_PATH}/lib"
 )
 
+find_library(TRANTOR
+  NAMES trantor
+  HINTS "${CMAKE_PREFIX_PATH}/lib"
+)
+
 # Use pkg-config to find the SentencePiece library
 
 if(NOT WIN32) # Linux
   # Enable pkg-config support in CMake
   find_package(PkgConfig REQUIRED)
-  find_library(TRANTOR
-      NAMES trantor
-      HINTS "${CMAKE_PREFIX_PATH}/lib"
-  )
   # Use pkg-config to find the SentencePiece library
   pkg_search_module(SENTENCEPIECE REQUIRED sentencepiece)
 else() # Windows
