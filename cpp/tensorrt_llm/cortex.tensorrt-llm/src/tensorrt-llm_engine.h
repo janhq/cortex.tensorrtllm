@@ -8,7 +8,7 @@
 #include <string>
 
 #include "NvInfer.h"
-#include "base/cortex-common/cortextensorrtllmi.h"
+#include "base/cortex-common/enginei.h"
 #include "models/chat_completion_request.h"
 #include "models/load_model_request.h"
 #include "sentencepiece_processor.h"
@@ -88,19 +88,30 @@ struct InferenceState {
 
 namespace tensorrtllm {
 
-class TensorrtllmEngine : public CortexTensorrtLlmEngineI {
+class TensorrtllmEngine : public EngineI {
  public:
   ~TensorrtllmEngine() final;
   // ### Interface ###
-  void LoadModel(
-      std::shared_ptr<Json::Value> json_body,
-      std::function<void(Json::Value&&, Json::Value&&)>&& callback) final;
   void HandleChatCompletion(
       std::shared_ptr<Json::Value> json_body,
       std::function<void(Json::Value&&, Json::Value&&)>&& callback) final;
-  void Destroy(
-      std::shared_ptr<Json::Value> jsonBody,
-      std::function<void(Json::Value&&, Json::Value&&)>&& callback) final; 
+  void HandleEmbedding(
+      std::shared_ptr<Json::Value> json_body,
+      std::function<void(Json::Value&&, Json::Value&&)>&& callback) final;
+  void LoadModel(
+      std::shared_ptr<Json::Value> json_body,
+      std::function<void(Json::Value&&, Json::Value&&)>&& callback) final;
+  void UnloadModel(
+      std::shared_ptr<Json::Value> json_body,
+      std::function<void(Json::Value&&, Json::Value&&)>&& callback) final;
+  void GetModelStatus(
+      std::shared_ptr<Json::Value> json_body,
+      std::function<void(Json::Value&&, Json::Value&&)>&& callback) final;
+
+  // API to get running models.
+  void GetModels(
+      std::shared_ptr<Json::Value> json_body,
+      std::function<void(Json::Value&&, Json::Value&&)>&& callback) final;
 
   GenerationInput::TensorPtr GetTensorSingleStopWordList(int stopToken);
   GenerationInput CreateGenerationInput(std::vector<int32_t> inputIds);
@@ -110,10 +121,10 @@ class TensorrtllmEngine : public CortexTensorrtLlmEngineI {
   std::unique_ptr<GptSession> gpt_session;
   std::unique_ptr<Tokenizer> cortex_tokenizer;
 
-  void LoadModelImpl(model::LoadModelRequest&& request, std::function<void(Json::Value&&, Json::Value&&)>&& callback);
-  void HandleChatCompletionImpl(inferences::ChatCompletionRequest&& request, std::function<void(Json::Value&&, Json::Value&&)>&& callback);  
  private:
-  std::unique_ptr<trantor::ConcurrentTaskQueue> q;
+  bool CheckModelLoaded(
+      std::function<void(Json::Value&&, Json::Value&&)>& callback);
+
   GptSession::Config session_config{1, 1, 1};
   SamplingConfig sampling_config{1};
   std::unique_ptr<GptModelConfig> model_config;
@@ -123,6 +134,10 @@ class TensorrtllmEngine : public CortexTensorrtLlmEngineI {
   std::string system_prompt;
   std::string pre_prompt;
   int batchSize = 1;
+  std::string model_id_;
+  uint64_t start_time_;
+  std::atomic<bool> model_loaded_;
+  std::unique_ptr<trantor::ConcurrentTaskQueue> q_;
 };
 
 } // namespace inferences

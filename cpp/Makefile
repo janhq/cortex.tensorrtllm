@@ -1,4 +1,4 @@
-# Makefile for Cortex llamacpp engine - Build, Lint, Test, and Clean
+# Makefile for Cortex cortex.tensorrt-llm engine - Build, Lint, Test, and Clean
 .PHONY: all build package run-e2e-test
 
 RUN_TESTS ?= false
