@@ -96,6 +96,17 @@ jobs:
         working-directory: cpp
         run: |
           make build
+
+      - name: Package
+        working-directory: cpp/tensorrt_llm/cortex.tensorrt-llm
+        run: |
+          make package
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: cortex.tensorrt-llm-${{ matrix.os }}-${{ matrix.name }}
+          path: cpp/tensorrt_llm/cortex.tensorrt-llm/cortex.python.tar.gz
       
       - name: Clean
         if: always()

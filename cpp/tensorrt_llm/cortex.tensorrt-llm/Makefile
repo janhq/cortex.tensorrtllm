@@ -37,10 +37,6 @@ ifeq ($(OS),Windows_NT)
 else
 	@mkdir -p cortex.tensorrt-llm && \
 	cp ../../build/tensorrt_llm/cortex.tensorrt-llm/libengine.$(shell uname | tr '[:upper:]' '[:lower:]' | sed 's/darwin/dylib/;s/linux/so/') cortex.tensorrt-llm && \
-	cp /usr/local/cuda-12.4/targets/x86_64-linux/lib/libcublas.so.12 cortex.tensorrt-llm && \
-	cp /usr/local/cuda-12.4/targets/x86_64-linux/lib/libcublas.so.12.4.2.65 cortex.tensorrt-llm && \
-	cp /usr/local/cuda-12.4/targets/x86_64-linux/lib/libcublasLt.so.12 cortex.tensorrt-llm && \
-	cp /usr/local/cuda-12.4/targets/x86_64-linux/lib/libcublasLt.so.12.4.2.65 cortex.tensorrt-llm && \
 	cp /usr/local/tensorrt/targets/x86_64-linux-gnu/lib/libnvinfer.so.10 cortex.tensorrt-llm && \
 	cp /usr/local/tensorrt/targets/x86_64-linux-gnu/lib/libnvinfer.so.10.0.1 cortex.tensorrt-llm && \
 	cp /usr/local/lib/python3.10/dist-packages/tensorrt_llm/libs/libnvinfer_plugin_tensorrt_llm.so cortex.tensorrt-llm && \
