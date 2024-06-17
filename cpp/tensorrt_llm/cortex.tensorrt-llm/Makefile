@@ -51,6 +51,9 @@ else
 	cp /usr/local/tensorrt/targets/x86_64-linux-gnu/lib/libnvinfer_plugin.so cortex.tensorrt-llm && \
 	cp /usr/local/tensorrt/targets/x86_64-linux-gnu/lib/libnvinfer_plugin.so.9 cortex.tensorrt-llm && \
 	cp /usr/local/tensorrt/targets/x86_64-linux-gnu/lib/libnvinfer_plugin.so.9.3.0 cortex.tensorrt-llm && \
+	cp /home/runner/actions-runner/_work/cortex.tensorrt-llm/cortex.tensorrt-llm/cpp/build/tensorrt_llm/plugins/libnvinfer_plugin_tensorrt_llm.so cortex.tensorrt-llm && \
+	cp /home/runner/actions-runner/_work/cortex.tensorrt-llm/cortex.tensorrt-llm/cpp/build/tensorrt_llm/plugins/libnvinfer_plugin_tensorrt_llm.so.9 cortex.tensorrt-llm && \
+	cp /home/runner/actions-runner/_work/cortex.tensorrt-llm/cortex.tensorrt-llm/cpp/build/tensorrt_llm/plugins/libnvinfer_plugin_tensorrt_llm.so.9.3.0 cortex.tensorrt-llm && \
 	cp /home/runner/actions-runner/_work/cortex.tensorrt-llm/cortex.tensorrt-llm/cpp/build/tensorrt_llm/libtensorrt_llm.so cortex.tensorrt-llm && \
 	cp /usr/lib/x86_64-linux-gnu/libnccl.so cortex.tensorrt-llm && \
 	cp /usr/lib/x86_64-linux-gnu/libnccl.so.2 cortex.tensorrt-llm && \
