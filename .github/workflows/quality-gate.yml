@@ -106,7 +106,7 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: cortex.tensorrt-llm-${{ matrix.os }}-${{ matrix.name }}
-          path: cpp/tensorrt_llm/cortex.tensorrt-llm/cortex.python.tar.gz
+          path: cpp/tensorrt_llm/cortex.tensorrt-llm/cortex.tensorrt-llm.tar.gz
       
       - name: Clean
         if: always()
