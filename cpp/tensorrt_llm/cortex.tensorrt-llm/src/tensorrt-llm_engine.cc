@@ -284,7 +284,7 @@ void TensorrtllmEngine::LoadModelImpl(model::LoadModelRequest&& request, std::fu
     initTrtLlmPlugins(logger.get());
     // Load model configuration
     std::filesystem::path json_file_name = engine_dir / "config.json";
-    std::filesystem::path tokenizerModelName = engine_dir / "tokenizer.json";
+    std::filesystem::path tokenizerModelName = engine_dir / "tokenizer.model";
 
     cortex_tokenizer = std::make_unique<Tokenizer>(tokenizerModelName.string());
     LOG_INFO << "Loaded tokenizer";

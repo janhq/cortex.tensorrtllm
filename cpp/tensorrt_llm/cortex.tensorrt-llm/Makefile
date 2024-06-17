@@ -34,6 +34,15 @@ endif
 
 package:
 ifeq ($(OS),Windows_NT)
+	@powershell -Command "mkdir -p cortex.tensorrt-llm; cp ..\..\build\tensorrt_llm\cortex.tensorrt-llm\engine.dll cortex.tensorrt-llm\;"
+	@powershell -Command "cp -Force ..\..\build\tensorrt_llm\tensorrt_llm.dll cortex.tensorrt-llm\;"
+	@powershell -Command "cp -Force ..\..\build\tensorrt_llm\plugins\nvinfer_plugin_tensorrt_llm.dll cortex.tensorrt-llm\;"
+	@powershell -Command "cp -Force .\build_deps\_install\bin\zlib.dll cortex.tensorrt-llm\;"
+	@powershell -Command "cp -Force C:\workspace\cuDNN\bin\cudnn64_8.dll cortex.tensorrt-llm\;"
+	@powershell -Command "cp -Force C:\workspace\cuDNN\bin\cudnn_ops_infer64_8.dll cortex.tensorrt-llm\;"
+	@powershell -Command "cp -Force C:\workspace\TensorRT-9.3.0.1\lib\nvinfer.dll cortex.tensorrt-llm\;"
+	@powershell -Command "cp -Force C:\Windows\System32\msmpi.dll cortex.tensorrt-llm\;"
+	@powershell -Command "7z a -ttar temp.tar cortex.tensorrt-llm\*; 7z a -tgzip cortex.tensorrt-llm.tar.gz temp.tar;"
 else
 	@mkdir -p cortex.tensorrt-llm && \
 	cp ../../build/tensorrt_llm/cortex.tensorrt-llm/libengine.$(shell uname | tr '[:upper:]' '[:lower:]' | sed 's/darwin/dylib/;s/linux/so/') cortex.tensorrt-llm && \
