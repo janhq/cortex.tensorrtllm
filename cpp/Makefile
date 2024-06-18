@@ -16,6 +16,7 @@ all:
 # Build the Cortex engine
 build-deps:
 ifeq ($(OS),Windows_NT)
+	@powershell -Command "Get-WmiObject win32_operatingsystem | select osarchitecture;"
 	@powershell -Command "cd tensorrt_llm/cortex.tensorrt-llm; cmake -S ./third-party -B ./build_deps/third-party -DCMAKE_BUILD_TYPE=Release -DCMAKE_OBJECT_PATH_MAX=500; cmake --build ./build_deps/third-party --config Release -j8;"
 else
 	@cd tensorrt_llm/cortex.tensorrt-llm && cmake -S ./third-party -B ./build_deps/third-party -DCMAKE_BUILD_TYPE=Release -DCMAKE_OBJECT_PATH_MAX=500 && make -C ./build_deps/third-party -j 10 && rm -rf ./build_deps/third-party;
