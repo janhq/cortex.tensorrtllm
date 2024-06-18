@@ -16,7 +16,7 @@ all:
 # Build the Cortex engine
 build-deps:
 ifeq ($(OS),Windows_NT)
-	@powershell -Command "cd tensorrt_llm/cortex.tensorrt-llm; cmake -S ./third-party -B ./build_deps/third-party -DCMAKE_BUILD_TYPE=Release -DCMAKE_OBJECT_PATH_MAX=500; cmake --build ./build_deps/third-party --config Release -j8;"
+	@powershell -Command "cd tensorrt_llm/cortex.tensorrt-llm; cmake -S ./third-party -B ./build_deps/third-party -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -DCMAKE_BUILD_TYPE=Release -GNinja -DCMAKE_OBJECT_PATH_MAX=500; cmake --build ./build_deps/third-party --config Release -j8;"
 else
 	@cd tensorrt_llm/cortex.tensorrt-llm && cmake -S ./third-party -B ./build_deps/third-party -DCMAKE_BUILD_TYPE=Release -DCMAKE_OBJECT_PATH_MAX=500 && make -C ./build_deps/third-party -j 10 && rm -rf ./build_deps/third-party;
 endif

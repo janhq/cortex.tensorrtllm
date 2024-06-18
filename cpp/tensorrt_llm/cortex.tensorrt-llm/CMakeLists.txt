@@ -19,8 +19,8 @@ check_include_file_cxx(any HAS_ANY)
 check_include_file_cxx(string_view HAS_STRING_VIEW)
 check_include_file_cxx(coroutine HAS_COROUTINE)
 if(HAS_ANY
-   AND HAS_STRING_VIEW
-   AND HAS_COROUTINE)
+  AND HAS_STRING_VIEW
+  AND HAS_COROUTINE)
   set(CMAKE_CXX_STANDARD 20)
 elseif(HAS_ANY AND HAS_STRING_VIEW)
   set(CMAKE_CXX_STANDARD 17)
@@ -48,8 +48,6 @@ find_library(JSONCPP
     NAMES jsoncpp
     HINTS "${CMAKE_PREFIX_PATH}/lib"
 )
-
-# Use pkg-config to find the SentencePiece library
 
 if(NOT WIN32) # Linux
   # Enable pkg-config support in CMake
