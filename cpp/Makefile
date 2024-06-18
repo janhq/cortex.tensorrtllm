@@ -42,7 +42,7 @@ ifeq ($(OS),Windows_NT)
 	@powershell -Command "cp -Force C:\Windows\System32\msmpi.dll cortex.tensorrt-llm\;"
 	@powershell -Command "cp -Force .\build_deps\_install\bin\zlib.dll cortex.tensorrt-llm\;"
 else
-	@cd tensorrt_llm/cortex.tensorrt-llm && \
+	cd ./tensorrt_llm/cortex.tensorrt-llm && \
 	mkdir -p cortex.tensorrt-llm && \
 	cp ../../build/tensorrt_llm/cortex.tensorrt-llm/libengine.$(shell uname | tr '[:upper:]' '[:lower:]' | sed 's/darwin/dylib/;s/linux/so/') cortex.tensorrt-llm && \
 	cp /usr/local/tensorrt/targets/x86_64-linux-gnu/lib/libnvinfer.so.9 cortex.tensorrt-llm && \
