@@ -64,8 +64,6 @@ endif()
 message(STATUS "SentencePiece library dirs: ${SENTENCEPIECE_LIBRARY_DIRS}")
 message(STATUS "SentencePiece header dirs: ${SENTENCEPIECE_INCLUDE_DIRS}")
 
-add_library(engine SHARED src/tensorrt-llm_engine.cc)
-
 include_directories(${PROJECT_SOURCE_DIR}/include ${SENTENCEPIECE_INCLUDE_DIRS})
 
 link_directories(${SENTENCEPIECE_LIBRARY_DIRS})
@@ -77,6 +75,7 @@ add_custom_target(engine_proj)
 set(CXXOPTS_SRC_DIR ${PROJECT_SOURCE_DIR}/../3rdparty/cxxopts)
 add_subdirectory(${CXXOPTS_SRC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cxxopts)
 
+add_library(engine SHARED src/tensorrt-llm_engine.cc)
 target_link_libraries(
   engine PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE ${JSONCPP} ${TRANTOR} ${CMAKE_THREAD_LIBS_INIT} )
 
