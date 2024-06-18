@@ -97,8 +97,13 @@ jobs:
         run: |
           make build
 
+      - name: Pre-package
+        working-directory: cpp
+        run: |
+          make pre-package
+
       - name: Package
-        working-directory: cpp/tensorrt_llm/cortex.tensorrt-llm
+        working-directory: cpp
         run: |
           make package
 

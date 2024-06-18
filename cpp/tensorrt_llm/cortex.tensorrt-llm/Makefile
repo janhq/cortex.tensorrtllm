@@ -42,7 +42,6 @@ ifeq ($(OS),Windows_NT)
 	@powershell -Command "cp -Force ..\..\build\tensorrt_llm\tensorrt_llm.dll cortex.tensorrt-llm\;"
 	@powershell -Command "cp -Force C:\Windows\System32\msmpi.dll cortex.tensorrt-llm\;"
 	@powershell -Command "cp -Force .\build_deps\_install\bin\zlib.dll cortex.tensorrt-llm\;"
-	@powershell -Command "cp -Force ..\..\build\tensorrt_llm\th_common.dll cortex.tensorrt-llm\;"
 	@powershell -Command "7z a -ttar temp.tar cortex.tensorrt-llm\*; 7z a -tgzip cortex.tensorrt-llm.tar.gz temp.tar;"
 else
 	@mkdir -p cortex.tensorrt-llm && \
