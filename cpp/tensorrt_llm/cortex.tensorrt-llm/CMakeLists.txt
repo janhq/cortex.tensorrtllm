@@ -15,7 +15,6 @@
 # C++17
 # engine init
 include(CheckIncludeFileCXX)
-
 check_include_file_cxx(any HAS_ANY)
 check_include_file_cxx(string_view HAS_STRING_VIEW)
 check_include_file_cxx(coroutine HAS_COROUTINE)
@@ -29,10 +28,10 @@ else()
   set(CMAKE_CXX_STANDARD 14)
 endif()
 
-
-set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+SET(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
 set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/build_deps/_install)
 
 message(STATUS "Current Source Directory CORTEX: ${CMAKE_CURRENT_SOURCE_DIR}")
@@ -65,6 +64,8 @@ endif()
 message(STATUS "SentencePiece library dirs: ${SENTENCEPIECE_LIBRARY_DIRS}")
 message(STATUS "SentencePiece header dirs: ${SENTENCEPIECE_INCLUDE_DIRS}")
 
+add_library(engine SHARED src/tensorrt-llm_engine.cc)
+
 include_directories(${PROJECT_SOURCE_DIR}/include ${SENTENCEPIECE_INCLUDE_DIRS})
 
 link_directories(${SENTENCEPIECE_LIBRARY_DIRS})
@@ -76,9 +77,6 @@ add_custom_target(engine_proj)
 set(CXXOPTS_SRC_DIR ${PROJECT_SOURCE_DIR}/../3rdparty/cxxopts)
 add_subdirectory(${CXXOPTS_SRC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cxxopts)
 
-# main
-# add_executable(engine main.cc)
-add_library(engine SHARED src/tensorrt-llm_engine.cc)
 target_link_libraries(
   engine PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE ${JSONCPP} ${TRANTOR} ${CMAKE_THREAD_LIBS_INIT} )
 
