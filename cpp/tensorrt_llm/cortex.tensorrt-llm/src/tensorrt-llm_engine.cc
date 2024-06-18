@@ -376,7 +376,7 @@ void TensorrtllmEngine::UnloadModel(std::shared_ptr<Json::Value> json_body, std:
 void TensorrtllmEngine::HandleEmbedding( std::shared_ptr<Json::Value> json_body, std::function<void(Json::Value&&, Json::Value&&)>&& callback) {
   LOG_WARN << "Engine does not support embedding yet";
   Json::Value json_resp;
-  json_resp["message"] = "Model unloaded successfully";
+  json_resp["message"] = "Engine does not support embedding yet";
   Json::Value status;
   status["status_code"] = k409Conflict;
   callback(std::move(status), std::move(json_resp));

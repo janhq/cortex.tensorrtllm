@@ -228,7 +228,7 @@ RUN powershell -Command \
 RUN powershell -Command \
     choco install sccache make Ninja -y;
 
-RUN [Environment]::SetEnvironmentVariable('Path', $Env:Path + ';C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools', [EnvironmentVariableTarget]::Machine)
+# RUN [Environment]::SetEnvironmentVariable('Path', $Env:Path + ';C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools', [EnvironmentVariableTarget]::Machine)
 
 ADD ./requirements-dev-windows.txt ./requirements-dev-windows.txt
 ADD ./requirements-windows.txt ./requirements-windows.txt
