@@ -106,6 +106,7 @@ void InferenceThread(
   // Define the callback to stream each generated token
   generation_output.onTokenGenerated = [&infer_state, input_len, outputLen, self, &generation_output](
                                           GenerationOutput::TensorPtr const& output_ids, SizeType step, bool finished) {
+    LOG_INFO << "Inference thread started";
     // Assuming the shape of output_ids tensor is (1, 1, 160), where 160 is the number of tokens
     int output_length = output_ids->getShape().d[2]; // Get the length of output IDs based on the tensor shape
     // Copy output IDs from GPU to host for printing
@@ -240,6 +241,7 @@ void TensorrtllmEngine::HandleChatCompletion(std::shared_ptr<Json::Value> json_b
   inference_thread.detach(); // Detach the thread to allow it to run independently
 
   q_->runTaskInQueue([cb = std::move(callback), infer_state]() {
+    LOG_INFO << "Preparing to run inference task queue...";
     while (true) { // Continuously check if the queue is not empty
       std::unique_lock<std::mutex> lock(infer_state->queue_mutex); // Lock the queue for exclusive access
       if (!infer_state->texts_to_stream.empty()) {
@@ -280,9 +282,7 @@ void TensorrtllmEngine::HandleChatCompletion(std::shared_ptr<Json::Value> json_b
         status["is_stream"] = true;
         status["status_code"] = k200OK;
         cb(std::move(status), std::move(resp_data));
-        continue;;
-      }
-      else {
+      } else {
         // If the queue is empty, release the lock and wait before trying again
         lock.unlock();
       }
