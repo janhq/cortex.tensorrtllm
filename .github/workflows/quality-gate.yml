@@ -10,6 +10,7 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 1440
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: "windows"
