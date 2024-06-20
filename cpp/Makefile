@@ -25,6 +25,7 @@ endif
 build:
 ifeq ($(OS),Windows_NT)
 	@powershell -Command "cd ..; python .\scripts\build_wheel.py -a '80-real;86-real;89-real' --trt_root 'C:\workspace\TensorRT-9.3.0.1\' -D 'BUILD_CORTEX_TENSORRT-LLM=ON' --use_ccache"
+	@powershell -Command "cd build; cmake .. -DCMAKE_CUDA_ARCHITECTURES='80-real;86-real;89-real' -DTRT_LIB_DIR='C:/workspace/TensorRT-9.3.0.1/lib' -DTRT_INCLUDE_DIR='C:/workspace/TensorRT-9.3.0.1/include' -DBUILD_CORTEX_TENSORRT-LLM=ON -DCMAKE_CUDA_COMPILER='C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin/nvcc.exe' -DENABLE_MULTI_DEVICE=0 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache -G Ninja; cmake --build . --parallel 2 --config Release"
 else
 	@mkdir -p build && cd build; \
 	cmake .. -GNinja -DBUILD_CORTEX_TENSORRT-LLM=ON -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache -DCMAKE_BUILD_TYPE='Release' -DBUILD_PYT='OFF' -DBUILD_PYBIND='OFF' -DNVTX_DISABLE='ON' -DCMAKE_CUDA_ARCHITECTURES='80-real;86-real;89-real' '-DENABLE_MULTI_DEVICE=0' '-DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc' -DBUILD_BENCHMARKS=OFF '-DBUILD_TESTS=OFF' -DTRT_LIB_DIR=/usr/local/tensorrt/lib -DTRT_INCLUDE_DIR=/usr/local/tensorrt/include; \
@@ -49,9 +50,9 @@ else
 	cp /usr/local/tensorrt/targets/x86_64-linux-gnu/lib/libnvinfer.so.9 cortex.tensorrt-llm && \
 	cp /usr/lib/x86_64-linux-gnu/libcudnn.so.8 cortex.tensorrt-llm && \
 	cp /usr/lib/x86_64-linux-gnu/libcudnn_ops_infer.so.8 cortex.tensorrt-llm && \
-	cp /home/runner/actions-runner/_work/cortex.tensorrt-llm/cortex.tensorrt-llm/cpp/build/tensorrt_llm/plugins/libnvinfer_plugin_tensorrt_llm.so cortex.tensorrt-llm && \
+	cp /home/runner/actions-runner/_work/cortex.tensorrt-llm/cortex.tensorrt-llm/cpp/build/tensorrt_llm/plugins/libnvinfer_plugin_tensorrt_llm.so.9 cortex.tensorrt-llm && \
 	cp /home/runner/actions-runner/_work/cortex.tensorrt-llm/cortex.tensorrt-llm/cpp/build/tensorrt_llm/libtensorrt_llm.so cortex.tensorrt-llm && \
-	cp /opt/hpcx/ompi/lib/libmpi.so cortex.tensorrt-llm && \
+	cp /opt/hpcx/ompi/lib/libmpi.so.40 cortex.tensorrt-llm && \
 	cp /usr/lib/x86_64-linux-gnu/libnccl.so cortex.tensorrt-llm
 endif
 
