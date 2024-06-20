@@ -80,13 +80,17 @@ GenerationInput TensorrtllmEngine::CreateGenerationInput(std::vector<int32_t> in
       input_ids_host, ITensor::makeShape({batchSize, input_len}), MemoryType::kGPU);
   GenerationInput generation_input{0, 0, input_ids, input_lengths, model_config->usePackedInput()};
   generation_input.stopWordsList = GetTensorChatMLStopWordList();
+
+  LOG_INFO << "Create generation input successfully";
   return generation_input;
 }
 
 GenerationOutput TensorrtllmEngine::CreateGenerationOutput() {
   GenerationOutput generation_output {
-      gpt_session->getBufferManager().emptyTensor(MemoryType::kGPU, nvinfer1::DataType::kINT32),
-      gpt_session->getBufferManager().emptyTensor(MemoryType::kGPU, nvinfer1::DataType::kINT32)};
+    gpt_session->getBufferManager().emptyTensor(MemoryType::kGPU, nvinfer1::DataType::kINT32),
+    gpt_session->getBufferManager().emptyTensor(MemoryType::kGPU, nvinfer1::DataType::kINT32)
+  };
+  LOG_INFO << "Create generation input successfully";
   return generation_output;
 }
 
@@ -100,13 +104,14 @@ void InferenceThread(
     int outputLen) {
 
   // Input preparation
+  LOG_INFO << "Inference thread started";
   GenerationInput generation_input = self->CreateGenerationInput(input_ids_host);
   GenerationOutput generation_output = self->CreateGenerationOutput();
 
   // Define the callback to stream each generated token
   generation_output.onTokenGenerated = [&infer_state, input_len, outputLen, self, &generation_output](
                                           GenerationOutput::TensorPtr const& output_ids, SizeType step, bool finished) {
-    LOG_INFO << "Inference thread started";
+    LOG_INFO << "Generating tokenizer in thread";                                            
     // Assuming the shape of output_ids tensor is (1, 1, 160), where 160 is the number of tokens
     int output_length = output_ids->getShape().d[2]; // Get the length of output IDs based on the tensor shape
     // Copy output IDs from GPU to host for printing
