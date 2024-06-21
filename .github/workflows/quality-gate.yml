@@ -14,10 +14,10 @@ jobs:
       matrix:
         include:
           - os: "windows"
-            name: "cuda-12-2"
-            runs-on: "windows-tensorrt-llm-cuda-12-2"
+            name: "cuda-12-4"
+            runs-on: "windows-tensorrt-llm-0-10-0-cuda-12-4"
             run-e2e: false
-            s3-key-prefix: "windows-tensorrt-llm-ccache"
+            s3-key-prefix: "windows-tensorrt-llm-0-10-0-ccache"
             sccache-conf-path: 'C:\sccache.conf'
           - os: "linux"
             name: "cuda-12-3"
