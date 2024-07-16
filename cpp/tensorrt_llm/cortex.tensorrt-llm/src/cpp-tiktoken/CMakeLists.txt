@@ -25,7 +25,7 @@ set(OPENAPI_SOURCES byte_pair_encoding.cc emdedded_resource_reader.cc modelparam
 
 add_library(tiktoken ${OPENAPI_SOURCES})
 target_link_libraries(tiktoken pcre2-8)
-target_link_libraries(tiktoken ${FMT})
+target_link_libraries(tiktoken fmt)
 target_include_directories(tiktoken PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 if (NOT CPP_TIKTOKEN_TESTING)
