@@ -11,6 +11,11 @@ find_library(FMT
     HINTS "${CMAKE_PREFIX_PATH}/lib"
 )
 
+find_library(PCRE2
+    NAMES pcre2-8
+    HINTS "${CMAKE_PREFIX_PATH}/lib"
+)
+
 find_package(PCRE2 CONFIG COMPONENTS 8BIT)
 set(PCRE2_USE_STATIC_LIBS ON)
 

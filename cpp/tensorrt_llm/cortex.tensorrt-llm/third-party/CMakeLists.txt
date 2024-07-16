@@ -96,9 +96,14 @@ ExternalProject_Add(
     GIT_TAG 11.0.1
 )
 
+ExternalProject_Add(
+    pcre2
+    GIT_REPOSITORY https://github.com/luvit/pcre2
+)
+
 include_directories(${THIRD_PARTY_INSTALL_PATH}/include)
 link_directories(${THIRD_PARTY_INSTALL_PATH}/lib)
 # Optionally link or add dependencies to your targets
-add_dependencies(trantor c-ares jsoncpp brotli fmt)
+add_dependencies(trantor c-ares jsoncpp brotli fmt pcre2)
 
 # target_link_libraries(<your-target> ...)
