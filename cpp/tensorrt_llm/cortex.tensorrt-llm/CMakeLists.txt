@@ -48,10 +48,6 @@ find_library(JSONCPP
     NAMES jsoncpp
     HINTS "${CMAKE_PREFIX_PATH}/lib"
 )
-find_library(FMT
-    NAMES fmt
-    HINTS "${CMAKE_PREFIX_PATH}/lib"
-)
 
 if(NOT WIN32) # Linux
   # Enable pkg-config support in CMake
@@ -67,7 +63,6 @@ message(STATUS "SentencePiece library dirs: ${SENTENCEPIECE_LIBRARY_DIRS}")
 message(STATUS "SentencePiece header dirs: ${SENTENCEPIECE_INCLUDE_DIRS}")
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/cpp-tiktoken)
-find_package(cpp-tiktoken)
 
 include_directories(${PROJECT_SOURCE_DIR}/include ${SENTENCEPIECE_INCLUDE_DIRS})
 
@@ -80,7 +75,7 @@ add_custom_target(engine_proj)
 set(CXXOPTS_SRC_DIR ${PROJECT_SOURCE_DIR}/../3rdparty/cxxopts)
 add_subdirectory(${CXXOPTS_SRC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cxxopts)
 
-add_library(engine SHARED src/tensorrt-llm_engine.cc src/cpp-tiktoken/encoding.cc)
+add_library(engine SHARED src/tensorrt-llm_engine.cc)
 target_link_libraries(
   engine PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE ${JSONCPP} ${TRANTOR} ${CMAKE_THREAD_LIBS_INIT} )
 
