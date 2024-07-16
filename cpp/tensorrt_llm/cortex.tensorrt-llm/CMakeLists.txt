@@ -48,6 +48,10 @@ find_library(JSONCPP
     NAMES jsoncpp
     HINTS "${CMAKE_PREFIX_PATH}/lib"
 )
+find_library(FMT
+    NAMES fmt
+    HINTS "${CMAKE_PREFIX_PATH}/lib"
+)
 
 if(NOT WIN32) # Linux
   # Enable pkg-config support in CMake

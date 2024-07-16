@@ -8,6 +8,7 @@
 #include "tensorrt_llm/runtime/samplingConfig.h"
 #include "utils/tensorrt-llm_utils.h"
 #include "json/writer.h"
+#include "cpp-tiktoken/encoding.h" //include to use tiktoken
 #include <algorithm>
 #include <cstdint>
 #include <memory>

@@ -3,9 +3,13 @@ cmake_minimum_required(VERSION 3.1.2)
 project(tiktoken LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
-
-add_subdirectory(fmt)
-find_package(fmt)
+set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../build_deps/_install)
+# add_subdirectory(fmt)
+# find_package(fmt)
+find_library(FMT
+    NAMES fmt
+    HINTS "${CMAKE_PREFIX_PATH}/lib"
+)
 
 find_package(PCRE2 CONFIG COMPONENTS 8BIT)
 set(PCRE2_USE_STATIC_LIBS ON)
@@ -16,7 +20,7 @@ set(OPENAPI_SOURCES byte_pair_encoding.cc emdedded_resource_reader.cc modelparam
 
 add_library(tiktoken ${OPENAPI_SOURCES})
 target_link_libraries(tiktoken pcre2-8)
-target_link_libraries(tiktoken fmt)
+target_link_libraries(tiktoken ${FMT})
 target_include_directories(tiktoken PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 if (NOT CPP_TIKTOKEN_TESTING)
