@@ -94,11 +94,21 @@ ExternalProject_Add(
     fmt
     GIT_REPOSITORY https://github.com/fmtlib/fmt
     GIT_TAG 11.0.1
+    CMAKE_ARGS
+            -DBUILD_SHARED_LIBS=OFF
+            -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+            -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+            -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
 )
 
 ExternalProject_Add(
     pcre2
     GIT_REPOSITORY https://github.com/luvit/pcre2
+    CMAKE_ARGS
+            -DBUILD_SHARED_LIBS=OFF
+            -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+            -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+            -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
 )
 
 include_directories(${THIRD_PARTY_INSTALL_PATH}/include)
