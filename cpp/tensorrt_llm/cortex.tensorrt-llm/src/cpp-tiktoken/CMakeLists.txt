@@ -24,6 +24,8 @@ option(CPP_TIKTOKEN_TESTING "Enable testing" OFF)
 set(OPENAPI_SOURCES byte_pair_encoding.cc emdedded_resource_reader.cc modelparams.cc encoding.cc encoding_utils.cc pcre2_regex.cc)
 
 add_library(tiktoken ${OPENAPI_SOURCES})
+include_directories(${CMAKE_PREFIX_PATH}/include)
+link_directories(${CMAKE_PREFIX_PATH}/lib)
 target_link_libraries(tiktoken pcre2-8)
 target_link_libraries(tiktoken fmt)
 target_include_directories(tiktoken PUBLIC ${CMAKE_CURRENT_LIST_DIR} ${CMAKE_PREFIX_PATH})
