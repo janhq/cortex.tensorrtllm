@@ -130,7 +130,11 @@ class TiktokenTokenizer : public Tokenizer {
     return ids;
   }
 };
-
+  enum class ModelType {
+    openhermes,
+    llama3, 
+    mistral,
+};
 
 struct InferenceState {
   int prev_pos{0};
@@ -146,16 +150,16 @@ struct InferenceState {
     stop_word_match_len = 0;
   }
 
-  bool IsComplete(bool is_openhermes) const {
-    if(is_openhermes) {
+  bool IsComplete(ModelType model_type) const {
+    if(model_type == ModelType::openhermes || model_type == ModelType::llama3) {
       return stop_word_match_len >= sequence_openhermes.size();
     } else {
       return stop_word_match_len >= sequence_mistral.size();
     }
   }
 
-  const std::string& GetSequence(bool is_openhermes, size_t index) {
-    if(is_openhermes) {
+  const std::string& GetSequence(ModelType model_type, size_t index) {
+    if(model_type == ModelType::openhermes || model_type == ModelType::llama3) {
       return sequence_openhermes[index];
     } else {
       return sequence_mistral[index];
@@ -166,11 +170,6 @@ struct InferenceState {
 
 namespace tensorrtllm {
 
-  enum class ModelType {
-    openhermes,
-    llama3, 
-    mistral,
-};
 
 class TensorrtllmEngine : public EngineI {
  public:
@@ -222,7 +221,6 @@ class TensorrtllmEngine : public EngineI {
   uint64_t start_time_;
   std::atomic<bool> model_loaded_;
   std::unique_ptr<trantor::ConcurrentTaskQueue> q_;
-  bool is_openhermes_ = true;
   ModelType model_type_ = ModelType::openhermes;
 };
 

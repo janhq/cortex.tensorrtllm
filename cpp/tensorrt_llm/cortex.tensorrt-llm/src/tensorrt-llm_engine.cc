@@ -82,20 +82,19 @@ bool HandleMatch(std::string const& rew_text,
                 std::shared_ptr<InferenceState> infer_state, 
                 std::function<void(Json::Value&&, Json::Value&&)> cb, 
                 ModelType model_type) {
-  bool is_openhermes = model_type == ModelType::openhermes || model_type == ModelType::llama3;
-  if (infer_state->IsComplete(is_openhermes)) {
+  if (infer_state->IsComplete(model_type)) {
     return false;
   }
   if (infer_state->stop_word_match_len == 0) {
-    if ((is_openhermes && rew_text.find('<') != std::string::npos) || 
-        (!is_openhermes && rew_text.find('[') != std::string::npos)) {
+    if ((model_type == ModelType::openhermes && rew_text.find('<') != std::string::npos) || 
+        (model_type != ModelType::openhermes && rew_text.find('[') != std::string::npos)) {
       infer_state->stop_word_match_len++; // Move to next state
       return true;
     }
-  } else if (rew_text == infer_state->GetSequence(is_openhermes, infer_state->stop_word_match_len)) {
+  } else if (rew_text == infer_state->GetSequence(model_type, infer_state->stop_word_match_len)) {
     infer_state->stop_word_match_len++; // Move to next state
     return true;
-  } else if (infer_state->stop_word_match_len > 0 && rew_text == infer_state->GetSequence(is_openhermes, 0u)) {
+  } else if (infer_state->stop_word_match_len > 0 && rew_text == infer_state->GetSequence(model_type, 0u)) {
     infer_state->stop_word_match_len = 1; // Restart from first match if sequence breaks but matches start
     return true;
   } else {
@@ -426,7 +425,6 @@ void TensorrtllmEngine::HandleChatCompletion(std::shared_ptr<Json::Value> json_b
 void TensorrtllmEngine::LoadModel(std::shared_ptr<Json::Value> json_body, std::function<void(Json::Value&&, Json::Value&&)>&& callback) {
     model::LoadModelRequest request = model::fromJson(json_body);
     std::filesystem::path model_dir = request.model_path;
-    is_openhermes_ = IsOpenhermes(request.model_path);
     model_type_ = GetModelType(request.model_path);
 
     int ctx_len = request.ctx_len;
