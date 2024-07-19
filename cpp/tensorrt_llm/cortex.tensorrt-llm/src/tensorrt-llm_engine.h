@@ -131,9 +131,7 @@ class TiktokenTokenizer : public Tokenizer {
   }
 };
   enum class ModelType {
-    openhermes,
-    llama3, 
-    mistral,
+    kOpenHermes, kLlama3, kMistral
 };
 
 struct InferenceState {
@@ -151,7 +149,7 @@ struct InferenceState {
   }
 
   bool IsComplete(ModelType model_type) const {
-    if(model_type == ModelType::openhermes || model_type == ModelType::llama3) {
+    if(model_type == ModelType::kOpenHermes || model_type == ModelType::kLlama3) {
       return stop_word_match_len >= sequence_openhermes.size();
     } else {
       return stop_word_match_len >= sequence_mistral.size();
@@ -159,7 +157,7 @@ struct InferenceState {
   }
 
   const std::string& GetSequence(ModelType model_type, size_t index) {
-    if(model_type == ModelType::openhermes || model_type == ModelType::llama3) {
+    if(model_type == ModelType::kOpenHermes || model_type == ModelType::kLlama3) {
       return sequence_openhermes[index];
     } else {
       return sequence_mistral[index];
@@ -190,8 +188,8 @@ class TensorrtllmEngine : public EngineI {
   void GetModelStatus(
       std::shared_ptr<Json::Value> json_body,
       std::function<void(Json::Value&&, Json::Value&&)>&& callback) final;
-  virtual std::vector<int> encode_header_llama3(const std::string& role);
-  virtual std::vector<int> encode_message_llama3( const std::string& role, const std::string& content);
+  virtual std::vector<int> EncodeHeaderLlama3(const std::string& role);
+  virtual std::vector<int> EncodeMessageLlama3( const std::string& role, const std::string& content);
   // API to get running models.
   void GetModels(
       std::shared_ptr<Json::Value> json_body,
@@ -221,7 +219,7 @@ class TensorrtllmEngine : public EngineI {
   uint64_t start_time_;
   std::atomic<bool> model_loaded_;
   std::unique_ptr<trantor::ConcurrentTaskQueue> q_;
-  ModelType model_type_ = ModelType::openhermes;
+  ModelType model_type_ = ModelType::kOpenHermes;
 };
 
 } // namespace inferences
