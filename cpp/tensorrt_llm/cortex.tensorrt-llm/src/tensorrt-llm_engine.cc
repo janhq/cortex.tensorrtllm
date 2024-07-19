@@ -188,7 +188,8 @@ void InferenceThread(
       RemoveId(output_idsHostDecode, static_cast<int32_t>(MistralTemplate::kEndInst));
     }
     else if(model_type == ModelType::kLlama3){
-
+      RemoveId(output_idsHostDecode, static_cast<int32_t>(Llama3Template::kEndOfText));
+      RemoveId(output_idsHostDecode, static_cast<int32_t>(Llama3Template::kEndOfTurn));
     }
     std::string text = self->cortex_tokenizer->Decode(output_idsHostDecode);
 
