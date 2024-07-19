@@ -285,11 +285,6 @@ void TensorrtllmEngine::HandleChatCompletion(std::shared_ptr<Json::Value> json_b
     std::string input_role = message["role"].asString();
     std::string role;
     if (model_type_ == ModelType::llama3){
-      // tokens  = {128006,  882,128007, 271};
-      // auto new_tokens = cortex_tokenizer->Encode("Hi there!");
-      // // , 2028, 374, 264, 1296, 11914, 13, 128009};
-      // tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
-      // tokens.push_back(128009);
       std::string content = message["content"].asString();
       auto new_tokens = encode_message_llama3(input_role, content);
       tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
