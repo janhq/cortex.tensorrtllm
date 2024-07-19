@@ -6,7 +6,9 @@ include(ExternalProject)
 
 if(UNIX AND NOT APPLE)
   set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -fPIC")
+  set(CMAKE_C_FLAGS  "-fPIC")
   add_compile_options(-fPIC)
+  MESSAGE("CMAKE_C_FLAGS=" ${CMAKE_C_FLAGS})
 endif()
 
 # Define variables
@@ -97,7 +99,6 @@ ExternalProject_Add(
     CMAKE_ARGS
             -DBUILD_SHARED_LIBS=OFF
             -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
-            -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
             -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
 )
 
@@ -106,8 +107,6 @@ ExternalProject_Add(
     GIT_REPOSITORY https://github.com/luvit/pcre2
     CMAKE_ARGS
             -DBUILD_SHARED_LIBS=OFF
-            -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
-            -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
             -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
 )
 
