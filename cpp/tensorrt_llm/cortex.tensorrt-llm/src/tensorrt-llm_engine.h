@@ -61,13 +61,12 @@ class Tokenizer {
   }
 
   virtual std::string DecodeWithSpace(const int id) {
+    return "";
   }
 
-  virtual std::string Decode(const std::vector<int32_t> ids) {
-  }
+  virtual std::string Decode(const std::vector<int32_t> ids) = 0;
 
-  virtual std::vector<int> Encode(const std::string& input) {
-  }
+  virtual std::vector<int> Encode(const std::string& input) = 0;
 };
 
 class SentencePieceTokenizer : public Tokenizer {
