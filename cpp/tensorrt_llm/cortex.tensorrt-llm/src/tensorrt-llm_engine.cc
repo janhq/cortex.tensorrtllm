@@ -288,6 +288,9 @@ void TensorrtllmEngine::HandleChatCompletion(std::shared_ptr<Json::Value> json_b
   if (model_type_ == ModelType::kLlama3){
     tokens.push_back(static_cast<int32_t>(Llama3Template::kBeginOfText)); // <|begin_of_text|>
   }
+  else if (model_type_ == ModelType::kMistral){
+    tokens = {static_cast<int32_t>(MistralTemplate::kBos)};
+  }
   // Format the input from user
   int msg_count = 0;
   for (auto const& message : messages) {
@@ -299,7 +302,6 @@ void TensorrtllmEngine::HandleChatCompletion(std::shared_ptr<Json::Value> json_b
       tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
     }
     else{
-      tokens = {static_cast<int32_t>(MistralTemplate::kBos)};
       if (input_role == "user") {
           role = user_prompt_;
           std::string content = message["content"].asString();
