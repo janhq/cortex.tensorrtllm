@@ -48,12 +48,28 @@ namespace {
     kEndInst = 4
   };
 
+  // "<|end_of_text|>", "<|eot_id|>"
+  const std::vector<int32_t> Llama3StopWords = {128001, 128009, 1, 2};
+
   // TODO(sang) This is fragile, just a temporary solution. Maybe can use a config file or model architect, etc... 
   bool IsOpenhermes(const std::string& s) {
     if (s.find("mistral") != std::string::npos || s.find("Mistral") != std::string::npos) {
       return false;
     } 
     return true;
+  }
+    ModelType GetModelType(const std::string& s){
+    if (s.find("Meta") != std::string::npos || s.find("meta") != std::string::npos) {
+      return ModelType::llama3;
+    } 
+    else if (s.find("mistral") != std::string::npos || s.find("Mistral") != std::string::npos)
+    {
+      return  ModelType::mistral;
+    }
+    else{
+      return ModelType::openhermes;
+    }
+    
   }
 }
 TensorrtllmEngine::~TensorrtllmEngine() {}
@@ -65,7 +81,8 @@ void RemoveId(std::vector<int>& vec, int id) {
 bool HandleMatch(std::string const& rew_text, 
                 std::shared_ptr<InferenceState> infer_state, 
                 std::function<void(Json::Value&&, Json::Value&&)> cb, 
-                bool is_openhermes) {
+                ModelType model_type) {
+  bool is_openhermes = model_type == ModelType::openhermes || model_type == ModelType::llama3;
   if (infer_state->IsComplete(is_openhermes)) {
     return false;
   }
@@ -94,10 +111,13 @@ GenerationInput::TensorPtr TensorrtllmEngine::GetTensorSingleStopWordList(int st
 }
 
 GenerationInput::TensorPtr TensorrtllmEngine::GetTensorChatMLStopWordList() {
-  if(is_openhermes_) {
+  if(model_type_ == ModelType::openhermes) {
     return gpt_session->getBufferManager().copyFrom(kOpenhermesStopWords, ITensor::makeShape({1, 2, static_cast<int>(kOpenhermesStopWords.size()/2)}), MemoryType::kGPU);
-  } else {
+  } else if (model_type_ == ModelType::mistral) {
     return gpt_session->getBufferManager().copyFrom(kMistral_V0_3_StopWords, ITensor::makeShape({1, 2, static_cast<int>(kMistral_V0_3_StopWords.size()/2)}), MemoryType::kGPU);
+  }
+  else{
+    return gpt_session->getBufferManager().copyFrom(Llama3StopWords, ITensor::makeShape({1, 2, static_cast<int>(Llama3StopWords.size()/2)}), MemoryType::kGPU);
   }
 }
 
@@ -120,7 +140,7 @@ GenerationOutput TensorrtllmEngine::CreateGenerationOutput() {
     gpt_session->getBufferManager().emptyTensor(MemoryType::kGPU, nvinfer1::DataType::kINT32),
     gpt_session->getBufferManager().emptyTensor(MemoryType::kGPU, nvinfer1::DataType::kINT32)
   };
-  LOG_INFO << "Create generation input successfully";
+  LOG_INFO << "Create generation output successfully";
   return generation_output;
 }
 
@@ -131,7 +151,7 @@ void InferenceThread(
     TensorrtllmEngine* self,
     SamplingConfig sampling_config,
     int input_len,
-    int outputLen, bool is_openhermes) {
+    int outputLen, ModelType model_type) {
 
   // Input preparation
   LOG_INFO << "Inference thread started";
@@ -139,7 +159,7 @@ void InferenceThread(
   GenerationOutput generation_output = self->CreateGenerationOutput();
 
   // Define the callback to stream each generated token
-  generation_output.onTokenGenerated = [&infer_state, input_len, outputLen, self, &generation_output, is_openhermes](
+  generation_output.onTokenGenerated = [&infer_state, input_len, outputLen, self, &generation_output, model_type](
                                           GenerationOutput::TensorPtr const& output_ids, SizeType32 step, bool finished) {
     // LOG_INFO << "Generating tokenizer in thread";                                            
     // Assuming the shape of output_ids tensor is (1, 1, 160), where 160 is the number of tokens
@@ -151,13 +171,16 @@ void InferenceThread(
     std::vector<int> output_idsHostDecode(output_idsHost.begin() + input_len, output_idsHost.end());
 
     RemoveId(output_idsHostDecode, 0);
-    if(is_openhermes) {
+    if(model_type == ModelType::openhermes) {
       for(auto const& [_, v]: kOpenhermesTemplate) {
         RemoveId(output_idsHostDecode, v);
       }
-    } else {
+    } else if (model_type == ModelType::mistral) {
       RemoveId(output_idsHostDecode, static_cast<int32_t>(MistralTemplate::kBeginInst));
       RemoveId(output_idsHostDecode, static_cast<int32_t>(MistralTemplate::kEndInst));
+    }
+    else if(model_type == ModelType::llama3){
+
     }
     std::string text = self->cortex_tokenizer->Decode(output_idsHostDecode);
 
@@ -221,6 +244,22 @@ bool TensorrtllmEngine::CheckModelLoaded(std::function<void(Json::Value&&, Json:
   return true;
 }
 
+std::vector<int> TensorrtllmEngine::encode_header_llama3(const std::string& role){
+  std::vector<int> tokens = {};
+  tokens.push_back(128006); // <|start_header_id|>
+  auto new_tokens = cortex_tokenizer->Encode(role);
+  tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
+  tokens.push_back(128007); // <|end_header_id|>
+  tokens.push_back(271); // \n\n
+  return tokens;
+}
+std::vector<int> TensorrtllmEngine::encode_message_llama3( const std::string& role, const std::string& content) {
+  std::vector<int> tokens = encode_header_llama3( role);
+  auto new_tokens = cortex_tokenizer->Encode(content);
+  tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
+  tokens.push_back(128009); // <|eot_id|>
+  return tokens;
+}
 //#########################
 //### ENGINE END POINTS ###
 //#########################
@@ -237,58 +276,78 @@ void TensorrtllmEngine::HandleChatCompletion(std::shared_ptr<Json::Value> json_b
 
   // tokens for Mistral v0.3
   // TODO(sang): too much hard code here, need to refactor it soon
-  std::vector<int32_t> tokens = {static_cast<int32_t>(MistralTemplate::kBos)};
-
+  std::vector<int32_t> tokens;
+  if (model_type_ == ModelType::llama3){
+    tokens.push_back(128000); // <|begin_of_text|>
+  }
   // Format the input from user
   int msg_count = 0;
   for (auto const& message : messages) {
     std::string input_role = message["role"].asString();
     std::string role;
-    if (input_role == "user") {
-        role = user_prompt_;
-        std::string content = message["content"].asString();
-        formatted_input += role + content;
-        if(!is_openhermes_) {
-          auto new_tokens = cortex_tokenizer->Encode(content);
-          new_tokens.insert(new_tokens.begin(), static_cast<int32_t>(MistralTemplate::kBeginInst));
-          new_tokens.push_back(static_cast<int32_t>(MistralTemplate::kEndInst));
-          tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
-        }
+    if (model_type_ == ModelType::llama3){
+      // tokens  = {128006,  882,128007, 271};
+      // auto new_tokens = cortex_tokenizer->Encode("Hi there!");
+      // // , 2028, 374, 264, 1296, 11914, 13, 128009};
+      // tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
+      // tokens.push_back(128009);
+      std::string content = message["content"].asString();
+      auto new_tokens = encode_message_llama3(input_role, content);
+      tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
     }
-    else if (input_role == "assistant") {
-        role = ai_prompt_;
-        std::string content = message["content"].asString();
-        formatted_input += role + content;
-        if(!is_openhermes_) {
-          auto new_tokens = cortex_tokenizer->Encode(content);
-          if(msg_count == messages.size() - 1) {
-            new_tokens.push_back(static_cast<int32_t>(MistralTemplate::kEos));
+    else{
+      tokens = {static_cast<int32_t>(MistralTemplate::kBos)};
+      if (input_role == "user") {
+          role = user_prompt_;
+          std::string content = message["content"].asString();
+          formatted_input += role + content;
+          if(model_type_ == ModelType::mistral) {
+            auto new_tokens = cortex_tokenizer->Encode(content);
+            new_tokens.insert(new_tokens.begin(), static_cast<int32_t>(MistralTemplate::kBeginInst));
+            new_tokens.push_back(static_cast<int32_t>(MistralTemplate::kEndInst));
+            tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
           }
-          tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
-        }
-    }
-    else if (input_role == "system") {
-        role = system_prompt_;
-        std::string content = message["content"].asString();
-        formatted_input = role + content + formatted_input;
-    }
-    else {
-        role = input_role;
-        std::string content = message["content"].asString();
-        formatted_input += role + content;
+      }
+      else if (input_role == "assistant") {
+          role = ai_prompt_;
+          std::string content = message["content"].asString();
+          formatted_input += role + content;
+          if(model_type_ == ModelType::mistral) {
+            auto new_tokens = cortex_tokenizer->Encode(content);
+            if(msg_count == messages.size() - 1) {
+              new_tokens.push_back(static_cast<int32_t>(MistralTemplate::kEos));
+            }
+            tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
+          }
+      }
+      else if (input_role == "system") {
+          role = system_prompt_;
+          std::string content = message["content"].asString();
+          formatted_input = role + content + formatted_input;
+      }
+      else {
+          role = input_role;
+          std::string content = message["content"].asString();
+          formatted_input += role + content;
+      }
     }
     msg_count++;
   }
   formatted_input += ai_prompt_;
-  // LOG_INFO << formatted_input;
-  // Format the input from user
 
   std::shared_ptr<InferenceState> infer_state = std::make_shared<InferenceState>();
 
   std::vector<int32_t> input_ids_host;
-  if(is_openhermes_) {
+
+
+  if(model_type_ == ModelType::openhermes  ) {
     input_ids_host = cortex_tokenizer->Encode(formatted_input);
-  } else {
+  } else if( model_type_ == ModelType::mistral) {
+    input_ids_host = tokens;
+  }
+  else if (model_type_ == ModelType::llama3){
+    auto footer_tokens = encode_header_llama3("assistant");
+    tokens.insert(tokens.end(), footer_tokens.begin(), footer_tokens.end());
     input_ids_host = tokens;
   }
 
@@ -305,7 +364,7 @@ void TensorrtllmEngine::HandleChatCompletion(std::shared_ptr<Json::Value> json_b
   sampling_config.repetitionPenalty = std::vector{request.frequency_penalty};
   // Input preparation
 
-  std::thread inference_thread(InferenceThread, infer_state, input_ids_host, callback, this, sampling_config, input_len, outputLen, is_openhermes_);
+  std::thread inference_thread(InferenceThread, infer_state, input_ids_host, callback, this, sampling_config, input_len, outputLen, model_type_);
   inference_thread.detach(); // Detach the thread to allow it to run independently
 
   q_->runTaskInQueue([this, cb = std::move(callback), infer_state]() {
@@ -317,7 +376,7 @@ void TensorrtllmEngine::HandleChatCompletion(std::shared_ptr<Json::Value> json_b
         std::string rew_text = infer_state->texts_to_stream.front();
         // res_str += rew_text;
         infer_state->texts_to_stream.pop();
-        if (HandleMatch(rew_text, infer_state, cb, is_openhermes_) && rew_text != "[DONE]") {
+        if (HandleMatch(rew_text, infer_state, cb, model_type_ ) && rew_text != "[DONE]") {
             continue;
         };
 
@@ -368,10 +427,11 @@ void TensorrtllmEngine::LoadModel(std::shared_ptr<Json::Value> json_body, std::f
     model::LoadModelRequest request = model::fromJson(json_body);
     std::filesystem::path model_dir = request.model_path;
     is_openhermes_ = IsOpenhermes(request.model_path);
+    model_type_ = GetModelType(request.model_path);
 
     int ctx_len = request.ctx_len;
     // We only support 2 models for now, it is ugly but it works :(
-    if(is_openhermes_) {
+    if(model_type_ == ModelType::openhermes) {
       user_prompt_ = request.user_prompt.empty() ? kOhUserPrompt : request.user_prompt;
       ai_prompt_ = request.ai_prompt.empty() ? kOhAiPrompt : request.ai_prompt;
       system_prompt_ = request.system_prompt.empty() ? kOhSystemPrompt : request.system_prompt;
@@ -383,7 +443,13 @@ void TensorrtllmEngine::LoadModel(std::shared_ptr<Json::Value> json_body, std::f
     initTrtLlmPlugins(logger_.get());
 
     std::filesystem::path tokenizer_model_name = model_dir / "tokenizer.model";
-    cortex_tokenizer = std::make_unique<Tokenizer>(tokenizer_model_name.string());
+    if(model_type_ == ModelType::llama3){
+      cortex_tokenizer = std::make_unique<TiktokenTokenizer>(tokenizer_model_name.string());
+    }
+    else{
+      cortex_tokenizer = std::make_unique<SentencePieceTokenizer>(tokenizer_model_name.string());
+    }
+    
     LOG_INFO << "Loaded tokenizer from " << tokenizer_model_name.string();
 
     std::filesystem::path json_file_name = model_dir / "config.json";
