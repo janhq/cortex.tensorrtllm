@@ -108,6 +108,7 @@ ExternalProject_Add(
     CMAKE_ARGS
             -DBUILD_SHARED_LIBS=OFF
             -DPCRE2_STATIC_RUNTIME=ON
+            -DPCRE2_STATIC_PIC=ON
             -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}
             -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
 )
