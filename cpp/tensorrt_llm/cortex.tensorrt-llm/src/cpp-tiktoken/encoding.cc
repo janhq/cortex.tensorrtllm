@@ -20,7 +20,7 @@
 #include "pcre2_regex.h"
 
 #include <stdexcept>
-#include <fmt/format.h>
+// #include <fmt/format.h>
 #include <iostream>
 #define PCRE2_CODE_UNIT_WIDTH 0
 #include <pcre2.h>
@@ -62,7 +62,12 @@ std::shared_ptr<GptEncoding> GptEncoding::get_encoding_llama3(LanguageModel mode
             "<|reserved_special_token_4|>",
             "<|eot_id|>"};
     for(int i=5;i<num_reserved_special_tokens-5;i++){
-        list_special_tokens.push_back(fmt::format("<|reserved_special_token_{}|>", i));
+        char buffer[100];
+        sprintf(buffer, "<|reserved_special_token_%d|>", i);
+        std::string str(buffer);
+        list_special_tokens.push_back(buffer);
+        // list_special_tokens.push_back(fmt::format("<|reserved_special_token_{}|>", i));
+        
     }
     for (int i = 0 ; i < list_special_tokens.size();i++){
         special_llama3_token_mappings.insert({list_special_tokens[i],num_base_tokens+i});

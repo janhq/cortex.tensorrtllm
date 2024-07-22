@@ -97,7 +97,7 @@ ExternalProject_Add(
     GIT_TAG 11.0.1
     CMAKE_ARGS
             -DBUILD_SHARED_LIBS=OFF
-            -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} /utf-8
+            -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
             -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
 )
 
