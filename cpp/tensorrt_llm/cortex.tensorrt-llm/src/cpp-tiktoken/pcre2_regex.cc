@@ -18,10 +18,10 @@
 #include "pcre2_regex.h"
 
 #include <stdexcept>
-
+extern "C" {
 #define PCRE2_CODE_UNIT_WIDTH 0
 #include <pcre2.h>
-
+}
 class PCRERegex::Impl {
 public:
     Impl(const std::string &pattern, int flags);
