@@ -103,24 +103,26 @@ ExternalProject_Add(
 
 ExternalProject_Add(
     pcre2
-    GIT_REPOSITORY https://github.com/luvit/pcre2
+    GIT_REPOSITORY https://github.com/PCRE2Project/pcre2
+    GIT_TAG pcre2-10.44
     CMAKE_ARGS
             -DBUILD_SHARED_LIBS=OFF
+            -DPCRE2_STATIC_RUNTIME=OFF
             -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}
             -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
 )
 
-if(UNIX AND NOT APPLE)
-set(PCRE2_SRC_PATH ${THIRD_PARTY_INSTALL_PATH}/../third-party/pcre2-prefix/src/pcre2)
+# if(UNIX AND NOT APPLE)
+# set(PCRE2_SRC_PATH ${THIRD_PARTY_INSTALL_PATH}/../third-party/pcre2-prefix/src/pcre2)
 
-# The configure command does not work
-# Patch the cmake file to allow CFLAGS
-ExternalProject_Add_Step(
-    pcre2 patch_cmake
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/pcre2-patch/CMakeLists.txt ${PCRE2_SRC_PATH}/CMakeLists.txt
-    DEPENDEES build
-  )
-endif()
+# # The configure command does not work
+# # Patch the cmake file to allow CFLAGS
+# ExternalProject_Add_Step(
+#     pcre2 patch_cmake
+#     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/pcre2-patch/CMakeLists.txt ${PCRE2_SRC_PATH}/CMakeLists.txt
+#     DEPENDEES build
+#   )
+# endif()
 
 include_directories(${THIRD_PARTY_INSTALL_PATH}/include)
 link_directories(${THIRD_PARTY_INSTALL_PATH}/lib)
