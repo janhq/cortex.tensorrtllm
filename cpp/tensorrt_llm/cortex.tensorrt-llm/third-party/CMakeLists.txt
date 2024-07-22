@@ -106,6 +106,7 @@ ExternalProject_Add(
     GIT_REPOSITORY https://github.com/luvit/pcre2
     CMAKE_ARGS
             -DBUILD_SHARED_LIBS=OFF
+            -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}
             -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
 )
 
