@@ -83,7 +83,7 @@ add_subdirectory(${CXXOPTS_SRC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cxxopts)
 
 add_library(engine SHARED src/tensorrt-llm_engine.cc)
 target_link_libraries(
-  engine PUBLIC ${SHARED_TARGET} tiktoken nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE ${JSONCPP} ${TRANTOR} ${CMAKE_THREAD_LIBS_INIT} )
+  engine PUBLIC ${SHARED_TARGET} tiktoken pcre2-8 nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE ${JSONCPP} ${TRANTOR} ${CMAKE_THREAD_LIBS_INIT} )
 
 target_compile_features(engine PRIVATE cxx_std_17)
 target_compile_definitions(engine PUBLIC TOP_LEVEL_DIR="${TOP_LEVEL_DIR}")
