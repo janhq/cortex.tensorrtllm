@@ -38,6 +38,7 @@ ifeq ($(OS),Windows_NT)
 	@powershell -Command "cd tensorrt_llm\cortex.tensorrt-llm\; cp -Force C:\workspace\TensorRT-10.0.1.6\lib\nvinfer_10.dll cortex.tensorrt-llm\;"
 	@powershell -Command "cd tensorrt_llm\cortex.tensorrt-llm\; cp -Force ..\..\build\tensorrt_llm\plugins\nvinfer_plugin_tensorrt_llm.dll cortex.tensorrt-llm\;"
 	@powershell -Command "cd tensorrt_llm\cortex.tensorrt-llm\; cp -Force ..\..\build\tensorrt_llm\tensorrt_llm.dll cortex.tensorrt-llm\;"
+	@powershell -Command "cd tensorrt_llm\cortex.tensorrt-llm\; cp -Force ..\..\build\tensorrt_llm\kernels\decoderMaskedMultiheadAttention\decoderXQAImplJIT\nvrtcWrapper\tensorrt_llm_nvrtc_wrapper.dll cortex.tensorrt-llm\;"	
 	@powershell -Command "cd tensorrt_llm\cortex.tensorrt-llm\; cp -Force .\build_deps\_install\bin\zlib.dll cortex.tensorrt-llm\;"
 	@powershell -Command "cd tensorrt_llm\cortex.tensorrt-llm\; cp -Force .\build_deps\_install\bin\pcre2-8.dll cortex.tensorrt-llm\;"
 	@powershell -Command "cd tensorrt_llm\cortex.tensorrt-llm\; cp -Force ..\..\..\.github\patches\windows\msmpi.dll cortex.tensorrt-llm\;"
