@@ -46,11 +46,11 @@ std::shared_ptr<GptEncoding> GptEncoding::get_encoding(LanguageModel model, IRes
 std::shared_ptr<GptEncoding> GptEncoding::get_encoding_llama3(LanguageModel model, IResourceReader* resource_reader)
 {
     ModelParams model_params = ModelParamsGenerator::get_model_params(model, resource_reader);
-    std::cout<<"Len mergeble rank" <<model_params.mergeable_ranks().size()<<"\n";
+    // std::cout<<"Len mergeble rank" <<model_params.mergeable_ranks().size()<<"\n";
     int num_reserved_special_tokens = 256;
     int num_base_tokens = model_params.mergeable_ranks().size();
     std::unordered_map<std::string, int> special_llama3_token_mappings;
-    std::cout<<"Model pat string"<< model_params.pat_str()<<"\n"; 
+    // std::cout<<"Model pat string"<< model_params.pat_str()<<"\n"; 
     std::vector<std::string> list_special_tokens = {"<|begin_of_text|>",
             "<|end_of_text|>",
             "<|reserved_special_token_0|>",

@@ -4,21 +4,12 @@ project(tiktoken LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../build_deps/_install)
-# add_subdirectory(fmt)
-# find_package(fmt)
-find_library(FMT
-    NAMES fmt
-    HINTS "${CMAKE_PREFIX_PATH}/lib"
-)
 
 find_library(PCRE2
     NAMES pcre2-8
     HINTS "${CMAKE_PREFIX_PATH}/lib"
 )
 
-# find_package(PCRE2 CONFIG COMPONENTS 8BIT)
-# set(PCRE2_USE_STATIC_LIBS ON)
-# set(PCRE2_STATIC ON)
 option(CPP_TIKTOKEN_TESTING "Enable testing" OFF)
 
 set(OPENAPI_SOURCES byte_pair_encoding.cc emdedded_resource_reader.cc modelparams.cc encoding.cc encoding_utils.cc pcre2_regex.cc)
@@ -26,13 +17,9 @@ set(OPENAPI_SOURCES byte_pair_encoding.cc emdedded_resource_reader.cc modelparam
 add_library(tiktoken ${OPENAPI_SOURCES})
 include_directories(${CMAKE_PREFIX_PATH}/include)
 link_directories(${CMAKE_PREFIX_PATH}/lib)
-# if(UNIX AND NOT APPLE) # Linux
-    target_link_libraries(tiktoken pcre2-8)
-# else() # Windows
-    # target_link_libraries(tiktoken pcre2-8-static)
-# endif()
 
-target_link_libraries(tiktoken fmt)
+target_link_libraries(tiktoken pcre2-8)
+
 target_include_directories(tiktoken PUBLIC ${CMAKE_CURRENT_LIST_DIR} ${CMAKE_PREFIX_PATH}/include)
 
 if (NOT CPP_TIKTOKEN_TESTING)
