@@ -116,24 +116,11 @@ ExternalProject_Add(
     CMAKE_ARGS
             -DCMAKE_BUILD_TYPE=Release
             -DBUILD_SHARED_LIBS=${PCRE2_SHARED_LIBS}
-            -DBUILD_STATIC_LIBS=${PCRE2_STATIC_LIBS}
-            # -DPCRE2_STATIC_RUNTIME=ON
+            -DBUILD_STATIC_LIBS=${PCRE2_STATIC_LIBS}            
             -DPCRE2_STATIC_PIC=ON
             -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}
             -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
 )
-
-# if(UNIX AND NOT APPLE)
-# set(PCRE2_SRC_PATH ${THIRD_PARTY_INSTALL_PATH}/../third-party/pcre2-prefix/src/pcre2)
-
-# # The configure command does not work
-# # Patch the cmake file to allow CFLAGS
-# ExternalProject_Add_Step(
-#     pcre2 patch_cmake
-#     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/pcre2-patch/CMakeLists.txt ${PCRE2_SRC_PATH}/CMakeLists.txt
-#     DEPENDEES build
-#   )
-# endif()
 
 include_directories(${THIRD_PARTY_INSTALL_PATH}/include)
 link_directories(${THIRD_PARTY_INSTALL_PATH}/lib)
