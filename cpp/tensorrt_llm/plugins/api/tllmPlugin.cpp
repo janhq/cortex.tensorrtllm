@@ -131,7 +131,8 @@ nvinfer1::ILogger* LoggerManager::defaultLogger() noexcept
 extern "C"
 {
     bool initTrtLlmPlugins(void* logger, char const* libNamespace)
-    {
+    {   
+        std::cout << "1" << std::endl;
         if (pluginsInitialized)
             return true;
 
@@ -159,6 +160,7 @@ extern "C"
         }
 
         pluginsInitialized = true;
+        std::cout << "2" << std::endl;
         return true;
     }
 
