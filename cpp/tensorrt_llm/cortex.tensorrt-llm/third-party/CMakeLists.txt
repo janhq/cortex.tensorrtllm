@@ -101,6 +101,6 @@ ExternalProject_Add(
 include_directories(${THIRD_PARTY_INSTALL_PATH}/include)
 link_directories(${THIRD_PARTY_INSTALL_PATH}/lib)
 # Optionally link or add dependencies to your targets
-add_dependencies(trantor c-ares jsoncpp brotli fmt pcre2)
+add_dependencies(trantor c-ares jsoncpp brotli pcre2)
 
 # target_link_libraries(<your-target> ...)
