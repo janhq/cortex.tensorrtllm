@@ -132,6 +132,7 @@ extern "C"
 {
     bool initTrtLlmPlugins(void* logger, char const* libNamespace)
     {
+        std::cout << "1" << std::endl;
         if (pluginsInitialized)
             return true;
 
@@ -139,7 +140,7 @@ extern "C"
         {
             gLogger = static_cast<nvinfer1::ILogger*>(logger);
         }
-        setLoggerFinder(&gGlobalLoggerFinder);
+        // setLoggerFinder(&gGlobalLoggerFinder);
 
         auto registry = getPluginRegistry();
         std::int32_t nbCreators;
@@ -159,6 +160,7 @@ extern "C"
         }
 
         pluginsInitialized = true;
+        std::cout << "1" << std::endl;
         return true;
     }
 
