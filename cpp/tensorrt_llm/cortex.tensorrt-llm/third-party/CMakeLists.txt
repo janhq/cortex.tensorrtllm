@@ -22,20 +22,6 @@ set(THIRD_PARTY_INSTALL_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../build_deps/_install)
 #set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 #
 # Add the external project
-set(ZLIB_USE_STATIC_LIBS OFF)
-find_package(ZLIB)
-if(NOT ZLIB_FOUND)
-    set(ZLIB_USE_STATIC_LIBS ON)
-    ExternalProject_Add(
-        zlib
-        GIT_REPOSITORY https://github.com/madler/zlib.git
-        GIT_TAG v1.2.11
-        CMAKE_ARGS
-            -DBUILD_SHARED_LIBS=OFF
-            -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
-            -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
-    )
-endif()
 
 ExternalProject_Add(
     brotli
