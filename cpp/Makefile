@@ -49,6 +49,7 @@ else
 	cp /usr/local/tensorrt/targets/x86_64-linux-gnu/lib/libnvinfer.so cortex.tensorrt-llm && \
 	cp /home/runner/actions-runner/_work/cortex.tensorrt-llm/cortex.tensorrt-llm/cpp/build/tensorrt_llm/plugins/libnvinfer_plugin_tensorrt_llm.so cortex.tensorrt-llm && \
 	cp /home/runner/actions-runner/_work/cortex.tensorrt-llm/cortex.tensorrt-llm/cpp/build/tensorrt_llm/libtensorrt_llm.so cortex.tensorrt-llm && \
+	cp /home/runner/actions-runner/_work/cortex.tensorrt-llm/cortex.tensorrt-llm/cpp/build/tensorrt_llm/kernels/decoderMaskedMultiheadAttention/decoderXQAImplJIT/nvrtcWrapper/libtensorrt_llm_nvrtc_wrapper.so cortex.tensorrt-llm && \
 	cp /opt/hpcx/ompi/lib/libmpi.so cortex.tensorrt-llm && \
 	cp /usr/lib/x86_64-linux-gnu/libnccl.so cortex.tensorrt-llm
 endif
