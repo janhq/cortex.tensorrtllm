@@ -139,7 +139,9 @@ extern "C"
         {
             gLogger = static_cast<nvinfer1::ILogger*>(logger);
         }
+#if !defined(_MSC_VER)        
         setLoggerFinder(&gGlobalLoggerFinder);
+#endif
 
         auto registry = getPluginRegistry();
         std::int32_t nbCreators;
