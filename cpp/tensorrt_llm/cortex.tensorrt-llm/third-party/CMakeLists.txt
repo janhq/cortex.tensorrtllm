@@ -6,6 +6,7 @@ include(ExternalProject)
 
 if(UNIX AND NOT APPLE)
   set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -fPIC")
+  set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -fPIC")
   add_compile_options(-fPIC)
 endif()
 
@@ -21,20 +22,6 @@ set(THIRD_PARTY_INSTALL_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../build_deps/_install)
 #set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 #
 # Add the external project
-set(ZLIB_USE_STATIC_LIBS OFF)
-find_package(ZLIB)
-if(NOT ZLIB_FOUND)
-    set(ZLIB_USE_STATIC_LIBS ON)
-    ExternalProject_Add(
-        zlib
-        GIT_REPOSITORY https://github.com/madler/zlib.git
-        GIT_TAG v1.2.11
-        CMAKE_ARGS
-            -DBUILD_SHARED_LIBS=OFF
-            -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
-            -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
-    )
-endif()
 
 ExternalProject_Add(
     brotli
@@ -90,9 +77,30 @@ ExternalProject_Add(
     	-DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
 )
 
+if(WIN32)
+  SET(PCRE2_SHARED_LIBS ON)
+  SET(PCRE2_STATIC_LIBS OFF)
+else()
+  SET(PCRE2_SHARED_LIBS OFF)
+  SET(PCRE2_STATIC_LIBS ON)
+endif()
+
+ExternalProject_Add(
+    pcre2
+    GIT_REPOSITORY https://github.com/PCRE2Project/pcre2
+    GIT_TAG pcre2-10.44
+    CMAKE_ARGS
+            -DCMAKE_BUILD_TYPE=Release
+            -DBUILD_SHARED_LIBS=${PCRE2_SHARED_LIBS}
+            -DBUILD_STATIC_LIBS=${PCRE2_STATIC_LIBS}            
+            -DPCRE2_STATIC_PIC=ON
+            -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}
+            -DCMAKE_INSTALL_PREFIX=${THIRD_PARTY_INSTALL_PATH}
+)
+
 include_directories(${THIRD_PARTY_INSTALL_PATH}/include)
 link_directories(${THIRD_PARTY_INSTALL_PATH}/lib)
 # Optionally link or add dependencies to your targets
-add_dependencies(trantor c-ares jsoncpp brotli)
+add_dependencies(trantor c-ares jsoncpp brotli pcre2)
 
 # target_link_libraries(<your-target> ...)

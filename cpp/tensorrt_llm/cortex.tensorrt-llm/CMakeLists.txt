@@ -14,6 +14,12 @@
 # the License.
 # C++17
 # engine init
+
+if(UNIX AND NOT APPLE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+    add_compile_options(-fPIC)
+endif()
+
 include(CheckIncludeFileCXX)
 check_include_file_cxx(any HAS_ANY)
 check_include_file_cxx(string_view HAS_STRING_VIEW)
@@ -62,9 +68,11 @@ endif()
 message(STATUS "SentencePiece library dirs: ${SENTENCEPIECE_LIBRARY_DIRS}")
 message(STATUS "SentencePiece header dirs: ${SENTENCEPIECE_INCLUDE_DIRS}")
 
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src/cpp-tiktoken)
+
 include_directories(${PROJECT_SOURCE_DIR}/include ${SENTENCEPIECE_INCLUDE_DIRS})
 
-link_directories(${SENTENCEPIECE_LIBRARY_DIRS})
+link_directories(${SENTENCEPIECE_LIBRARY_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src/cpp-tiktoken)
 
 set(TOP_LEVEL_DIR "${PROJECT_SOURCE_DIR}/..")
 
@@ -75,7 +83,7 @@ add_subdirectory(${CXXOPTS_SRC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/cxxopts)
 
 add_library(engine SHARED src/tensorrt-llm_engine.cc)
 target_link_libraries(
-  engine PUBLIC ${SHARED_TARGET} nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE ${JSONCPP} ${TRANTOR} ${CMAKE_THREAD_LIBS_INIT} )
+  engine PUBLIC ${SHARED_TARGET} tiktoken nvinfer_plugin_tensorrt_llm cxxopts::cxxopts sentencepiece PRIVATE ${JSONCPP} ${TRANTOR} ${CMAKE_THREAD_LIBS_INIT} )
 
 target_compile_features(engine PRIVATE cxx_std_17)
 target_compile_definitions(engine PUBLIC TOP_LEVEL_DIR="${TOP_LEVEL_DIR}")
