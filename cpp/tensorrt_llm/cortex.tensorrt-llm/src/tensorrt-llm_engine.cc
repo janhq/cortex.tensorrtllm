@@ -471,7 +471,34 @@ void TensorrtllmEngine::LoadModel(std::shared_ptr<Json::Value> json_body, std::f
 
     // Init gpt_session
     auto model_path = model_dir / json.engineFilename(world_config, model_id_);
-    gpt_session = std::make_unique<GptSession>(session_config_, *model_config_, world_config, model_path.string(), logger_);
+    try {
+      gpt_session = std::make_unique<GptSession>(session_config_, *model_config_, world_config, model_path.string(), logger_);
+    } catch(const std::exception& e) {
+      LOG_ERROR << "Failed to load model: " << e.what();
+      LOG_INFO << "Retry once with smaller maxSequenceLength";
+      gpt_session.reset();
+      // Retry again with smaller maxSequenceLength once
+      session_config_.maxSequenceLength /= 2;
+      try {
+        gpt_session = std::make_unique<GptSession>(session_config_, *model_config_, world_config, model_path.string(), logger_);
+      } catch(const std::exception& e) {
+        LOG_ERROR << "Failed to load model: " << e.what();
+        gpt_session.reset();
+        cortex_tokenizer.reset();
+        q_.reset();
+        model_config_.reset();
+        logger_.reset();
+        Json::Value json_resp;
+        json_resp["message"] = "Failed to load model";
+        Json::Value status;
+        status["is_done"] = false;
+        status["has_error"] = true;
+        status["is_stream"] = false;
+        status["status_code"] = k500InternalServerError;
+        callback(std::move(status), std::move(json_resp));
+        return;
+      }
+    }
 
     model_loaded_ = true;
     if (q_ == nullptr) {
