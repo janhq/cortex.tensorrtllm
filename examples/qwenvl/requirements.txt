@@ -8,3 +8,4 @@ sentencepiece~=0.1.99
 tiktoken
 einops
 auto-gptq
+setuptools>=70.0.0 # not directly required, pinned by Snyk to avoid a vulnerability
