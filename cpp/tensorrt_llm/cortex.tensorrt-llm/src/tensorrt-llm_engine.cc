@@ -28,22 +28,19 @@ constexpr const int k400BadRequest = 400;
 constexpr const int k409Conflict = 409;
 constexpr const int k500InternalServerError = 500;
 
-// https://nvidia.github.io/TensorRT-LLM/_cpp_gen/runtime.html#generationinput-h
-// stopWordsList
-// 'im', '_' , 'end', '</s>', '<|im_end|>'
-const std::vector<int32_t> kOpenhermesStopWords = {321, 28730, 416, 2,  32000,
-                                                   3,   4,     5,   -1, -1};
+// '<', '|', 'im', '_', 'end', '|', '>', '</s>', '<|im_end|>'
+const std::list<std::vector<int32_t>> kOpenhermesStopWords = {
+    {28789, 28766, 321, 28730, 416, 28766, 28767},
+    {2},
+    {32000}};
 const std::string kOhUserPrompt = "<|im_end|>\n<|im_start|>user\n";
 const std::string kOhAiPrompt = "<|im_end|>\n<|im_start|>assistant\n";
 const std::string kOhSystemPrompt = "<|im_start|>system\n";
-const std::unordered_map<std::string, int> kOpenhermesTemplate = {
-    {"<|im_end|>", 32000},
-    {"<|im_start|>", 32001}};
 
-// '[', 'INST', ']', '[INST]', ''[, '/' , 'INST',']', '[/INST]', '</s>'
-const std::vector<int32_t> kMistral_V0_3_StopWords = {
-    29560, 17057, 29561, 3, 29560, 29516, 17057, 29561, 4,  2,
-    3,     4,     8,     9, 10,    -1,    -1,    -1,    -1, -1};
+// '</s>'
+const std::list<std::vector<int32_t>> kMistral_V0_3_StopWords = {{2}};
+
+enum class OpenhermesTemplate : int32_t { kImEnd = 32000, kImStart = 32001 };
 
 enum class MistralTemplate : int32_t {
   kBos = 1,
@@ -62,7 +59,7 @@ enum class Llama3Template : int32_t {
 };
 
 // "<|end_of_text|>", "<|eot_id|>"
-const std::vector<int32_t> Llama3StopWords = {128001, 128009, 1, 2};
+const std::list<std::vector<int32_t>> Llama3StopWords = {{128001}, {128009}};
 
 // TODO(sang) This is fragile, just a temporary solution. Maybe can use a config file or model architect, etc...
 bool IsOpenhermes(const std::string& s) {
@@ -83,15 +80,53 @@ ModelType GetModelType(const std::string& s) {
     return ModelType::kOpenHermes;
   }
 }
+
+std::list<std::vector<int32_t>> GetStopWords(ModelType model_type) {
+  switch (model_type) {
+    case ModelType::kLlama3:
+      return Llama3StopWords;
+    case ModelType::kMistral:
+      return kMistral_V0_3_StopWords;
+    default:
+      return kOpenhermesStopWords;
+  }
+}
+
+void RemoveSpecialTokens(std::vector<int32_t>& v, ModelType model_type) {
+  auto remove_id = [](std::vector<int>& vec, int id) {
+    vec.erase(std::remove(vec.begin(), vec.end(), id), vec.end());
+  };
+  switch (model_type) {
+    case ModelType::kLlama3:
+      remove_id(v, static_cast<int32_t>(Llama3Template::kEndOfText));
+      remove_id(v, static_cast<int32_t>(Llama3Template::kEndOfTurn));
+      break;
+    case ModelType::kMistral:
+      remove_id(v, static_cast<int32_t>(MistralTemplate::kEos));
+      break;
+    default:
+      remove_id(v, static_cast<int32_t>(OpenhermesTemplate::kImEnd));
+      remove_id(v, static_cast<int32_t>(OpenhermesTemplate::kImStart));
+      break;
+  }
+}
 }  // namespace
-TensorrtllmEngine::~TensorrtllmEngine() {}
+TensorrtllmEngine::~TensorrtllmEngine() {
+  model_loaded_ = false;
+  if (res_thread_ && res_thread_->joinable()) {
+    res_thread_->join();
+  }
+
+  if (req_thread_ && req_thread_->joinable()) {
+    req_thread_->join();
+  }
+}
 
 void RemoveId(std::vector<int>& vec, int id) {
   vec.erase(std::remove(vec.begin(), vec.end(), id), vec.end());
 }
 
-bool HandleMatch(std::string const& rew_text,
-                 std::shared_ptr<InferenceState> infer_state,
+bool HandleMatch(std::string const& rew_text, InferenceState* infer_state,
                  std::function<void(Json::Value&&, Json::Value&&)> cb,
                  ModelType model_type) {
   if (infer_state->IsComplete(model_type)) {
@@ -119,143 +154,6 @@ bool HandleMatch(std::string const& rew_text,
     return false;  // Reset to start if sequence breaks
   }
   return false;
-}
-
-GenerationInput::TensorPtr TensorrtllmEngine::GetTensorSingleStopWordList(
-    int stopToken) {
-  std::vector<int32_t> stop_words_tokens = {
-      stopToken, -1, 1, -1};  // Extend with -1 for increased length
-  return gpt_session->getBufferManager().copyFrom(
-      stop_words_tokens, ITensor::makeShape({1, 2, 2}), MemoryType::kGPU);
-}
-
-GenerationInput::TensorPtr TensorrtllmEngine::GetTensorChatMLStopWordList() {
-  if (model_type_ == ModelType::kOpenHermes) {
-    return gpt_session->getBufferManager().copyFrom(
-        kOpenhermesStopWords,
-        ITensor::makeShape(
-            {1, 2, static_cast<int>(kOpenhermesStopWords.size() / 2)}),
-        MemoryType::kGPU);
-  } else if (model_type_ == ModelType::kMistral) {
-    return gpt_session->getBufferManager().copyFrom(
-        kMistral_V0_3_StopWords,
-        ITensor::makeShape(
-            {1, 2, static_cast<int>(kMistral_V0_3_StopWords.size() / 2)}),
-        MemoryType::kGPU);
-  } else {
-    return gpt_session->getBufferManager().copyFrom(
-        Llama3StopWords,
-        ITensor::makeShape(
-            {1, 2, static_cast<int>(Llama3StopWords.size() / 2)}),
-        MemoryType::kGPU);
-  }
-}
-
-GenerationInput TensorrtllmEngine::CreateGenerationInput(
-    std::vector<int32_t> input_ids_host) {
-  int input_len = input_ids_host.size();
-  std::vector<int32_t> input_lengths_host(batch_size_, input_len);
-  GenerationInput::TensorPtr input_lengths =
-      gpt_session->getBufferManager().copyFrom(
-          input_lengths_host, ITensor::makeShape({batch_size_}),
-          MemoryType::kGPU);
-  GenerationInput::TensorPtr input_ids =
-      gpt_session->getBufferManager().copyFrom(
-          input_ids_host, ITensor::makeShape({batch_size_, input_len}),
-          MemoryType::kGPU);
-  GenerationInput generation_input{0, 0, input_ids, input_lengths,
-                                   model_config_->usePackedInput()};
-  generation_input.stopWordsList = GetTensorChatMLStopWordList();
-
-  LOG_INFO << "Create generation input successfully";
-  return generation_input;
-}
-
-GenerationOutput TensorrtllmEngine::CreateGenerationOutput() {
-  GenerationOutput generation_output{
-      gpt_session->getBufferManager().emptyTensor(MemoryType::kGPU,
-                                                  nvinfer1::DataType::kINT32),
-      gpt_session->getBufferManager().emptyTensor(MemoryType::kGPU,
-                                                  nvinfer1::DataType::kINT32)};
-  LOG_INFO << "Create generation output successfully";
-  return generation_output;
-}
-
-void InferenceThread(
-    std::shared_ptr<InferenceState> infer_state,
-    std::vector<int32_t> input_ids_host,
-    std::function<void(Json::Value&&, Json::Value&&)>&& callback,
-    TensorrtllmEngine* self, SamplingConfig sampling_config, int input_len,
-    int outputLen, ModelType model_type) {
-
-  // Input preparation
-  LOG_INFO << "Inference thread started";
-  GenerationInput generation_input =
-      self->CreateGenerationInput(input_ids_host);
-  GenerationOutput generation_output = self->CreateGenerationOutput();
-
-  // Define the callback to stream each generated token
-  generation_output
-      .onTokenGenerated = [&infer_state, input_len, outputLen, self,
-                           &generation_output, model_type](
-                              GenerationOutput::TensorPtr const& output_ids,
-                              SizeType32 step, bool finished) {
-    // LOG_INFO << "Generating tokenizer in thread";
-    // Assuming the shape of output_ids tensor is (1, 1, 160), where 160 is the number of tokens
-    int output_length =
-        output_ids->getShape()
-            .d[2];  // Get the length of output IDs based on the tensor shape
-    // Copy output IDs from GPU to host for printing
-    std::vector<int32_t> output_idsHost(output_length);
-    self->gpt_session->getBufferManager().copy(
-        *output_ids, output_idsHost.data(), MemoryType::kCPU);
-    // Find the last non-zero value in the output IDs starting from the end of the input sequence
-    std::vector<int> output_idsHostDecode(output_idsHost.begin() + input_len,
-                                          output_idsHost.end());
-
-    RemoveId(output_idsHostDecode, 0);
-    if (model_type == ModelType::kOpenHermes) {
-      for (auto const& [_, v] : kOpenhermesTemplate) {
-        RemoveId(output_idsHostDecode, v);
-      }
-    } else if (model_type == ModelType::kMistral) {
-      RemoveId(output_idsHostDecode,
-               static_cast<int32_t>(MistralTemplate::kBeginInst));
-      RemoveId(output_idsHostDecode,
-               static_cast<int32_t>(MistralTemplate::kEndInst));
-    } else if (model_type == ModelType::kLlama3) {
-      RemoveId(output_idsHostDecode,
-               static_cast<int32_t>(Llama3Template::kEndOfText));
-      RemoveId(output_idsHostDecode,
-               static_cast<int32_t>(Llama3Template::kEndOfTurn));
-    }
-    std::string text = self->cortex_tokenizer->Decode(output_idsHostDecode);
-
-    if (infer_state->prev_pos >= 0 && infer_state->prev_pos < text.size()) {
-      // Valid prev_pos, proceed with slicing the string from prev_pos to the end
-      std::string string_tok(text.begin() + infer_state->prev_pos, text.end());
-      std::lock_guard<std::mutex> guard(
-          infer_state->queue_mutex);  // Protect access with a lock
-      infer_state->texts_to_stream.push(string_tok);
-      ++infer_state->token_gen_count;
-    } else if (infer_state->prev_pos >= text.size()) {
-      infer_state->prev_pos = text.size();
-    }
-    infer_state->prev_pos = text.size();
-    if (finished) {
-      std::lock_guard<std::mutex> guard(
-          infer_state->queue_mutex);  // Protect access with a lock
-      infer_state->texts_to_stream.push("[DONE]");
-      LOG_INFO << "Cortex.tensorrtllm generated "
-               << infer_state->token_gen_count << " tokens";
-      return;
-    }
-    return;
-  };
-  // The rest of the logic inside the `chat_completion` remains unchanged...
-  // After finishing the setup, call the inference logic
-  self->gpt_session->generate(generation_output, generation_input,
-                              sampling_config);
 }
 
 inline std::string GetModelId(const Json::Value& json_body) {
@@ -300,17 +198,18 @@ std::vector<int> TensorrtllmEngine::EncodeHeaderLlama3(
   std::vector<int> tokens = {};
   tokens.push_back(static_cast<int32_t>(
       Llama3Template::kStartHeaderId));  // <|start_header_id|>
-  auto new_tokens = cortex_tokenizer->Encode(role);
+  auto new_tokens = cortex_tokenizer_->Encode(role);
   tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
   tokens.push_back(
       static_cast<int32_t>(Llama3Template::kEndHeaderId));  // <|end_header_id|>
   tokens.push_back(static_cast<int32_t>(Llama3Template::kParagraph));  // \n\n
   return tokens;
 }
+
 std::vector<int> TensorrtllmEngine::EncodeMessageLlama3(
     const std::string& role, const std::string& content) {
   std::vector<int> tokens = EncodeHeaderLlama3(role);
-  auto new_tokens = cortex_tokenizer->Encode(content);
+  auto new_tokens = cortex_tokenizer_->Encode(content);
   tokens.insert(tokens.end(), new_tokens.begin(), new_tokens.end());
   tokens.push_back(
       static_cast<int32_t>(Llama3Template::kEndOfTurn));  // <|eot_id|>
@@ -355,7 +254,7 @@ void TensorrtllmEngine::HandleChatCompletion(
         std::string content = message["content"].asString();
         formatted_input += role + content;
         if (model_type_ == ModelType::kMistral) {
-          auto new_tokens = cortex_tokenizer->Encode(content);
+          auto new_tokens = cortex_tokenizer_->Encode(content);
           new_tokens.insert(new_tokens.begin(),
                             static_cast<int32_t>(MistralTemplate::kBeginInst));
           new_tokens.push_back(static_cast<int32_t>(MistralTemplate::kEndInst));
@@ -366,7 +265,7 @@ void TensorrtllmEngine::HandleChatCompletion(
         std::string content = message["content"].asString();
         formatted_input += role + content;
         if (model_type_ == ModelType::kMistral) {
-          auto new_tokens = cortex_tokenizer->Encode(content);
+          auto new_tokens = cortex_tokenizer_->Encode(content);
           if (msg_count == messages.size() - 1) {
             new_tokens.push_back(static_cast<int32_t>(MistralTemplate::kEos));
           }
@@ -386,13 +285,10 @@ void TensorrtllmEngine::HandleChatCompletion(
   }
   formatted_input += ai_prompt_;
 
-  std::shared_ptr<InferenceState> infer_state =
-      std::make_shared<InferenceState>();
-
   std::vector<int32_t> input_ids_host;
 
   if (model_type_ == ModelType::kOpenHermes) {
-    input_ids_host = cortex_tokenizer->Encode(formatted_input);
+    input_ids_host = cortex_tokenizer_->Encode(formatted_input);
   } else if (model_type_ == ModelType::kMistral) {
     input_ids_host = tokens;
   } else if (model_type_ == ModelType::kLlama3) {
@@ -401,34 +297,32 @@ void TensorrtllmEngine::HandleChatCompletion(
     input_ids_host = tokens;
   }
 
-  int const input_len = input_ids_host.size();
-  int const outputLen = request.max_tokens - input_len;
+  runtime_opts_.streaming = true;
+  runtime_opts_.timeoutMs = 2000;
+  auto request_id = req_id_++;
+  {
+    std::lock_guard<std::mutex> l(req_mtx_);
+    reqs_.emplace(request_id, std::move(input_ids_host));
+    req_cv_.notify_one();
+  }
 
-  // Create sampling config
-  SamplingConfig sampling_config{1};
-  sampling_config.temperature = std::vector{request.temperature};
-  sampling_config.randomSeed = std::vector{static_cast<uint64_t>(42ull)};
-  sampling_config.topK = std::vector{40};
-  sampling_config.topP = std::vector{request.top_p};
-  sampling_config.minLength = std::vector{outputLen};
-  sampling_config.repetitionPenalty = std::vector{request.frequency_penalty};
-  // Input preparation
-
-  std::thread inference_thread(InferenceThread, infer_state, input_ids_host,
-                               callback, this, sampling_config, input_len,
-                               outputLen, model_type_);
-  inference_thread
-      .detach();  // Detach the thread to allow it to run independently
-
-  q_->runTaskInQueue([this, cb = std::move(callback), infer_state]() {
+  q_->runTaskInQueue([this, cb = std::move(callback), request_id]() {
+    std::chrono::time_point<std::chrono::system_clock> start;
+    bool first = true;
+    auto& infer_state = responses_.Get(request_id);
     LOG_INFO << "Preparing to run inference task queue...";
     while (true) {  // Continuously check if the queue is not empty
       std::unique_lock<std::mutex> lock(
-          infer_state->queue_mutex);  // Lock the queue for exclusive access
-      if (!infer_state->texts_to_stream.empty()) {
-        std::string rew_text = infer_state->texts_to_stream.front();
-        infer_state->texts_to_stream.pop();
-        if (HandleMatch(rew_text, infer_state, cb, model_type_) &&
+          infer_state.queue_mutex);  // Lock the queue for exclusive access
+      if (!infer_state.texts_to_stream.empty()) {
+        if (std::exchange(first, false)) {
+          first = false;
+          start = std::chrono::system_clock::now();
+        }
+        std::string rew_text = infer_state.texts_to_stream.front();
+        // std::cout << rew_text << std::endl;
+        infer_state.texts_to_stream.pop();
+        if (HandleMatch(rew_text, &infer_state, cb, model_type_) &&
             rew_text != "[DONE]") {
           continue;
         };
@@ -441,7 +335,7 @@ void TensorrtllmEngine::HandleChatCompletion(
                   "stop") +
               "\n\n" + "data: [DONE]" + "\n\n";
 
-          infer_state->is_finished = true;
+          infer_state.is_finished = true;
 
           Json::Value resp_data;
           resp_data["data"] = str;
@@ -477,9 +371,17 @@ void TensorrtllmEngine::HandleChatCompletion(
       }
     }
     // LOG_INFO << res_str;
+    auto end = std::chrono::system_clock::now();
+    auto duration_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
+            .count();
+    LOG_INFO << "Inference completed, generated tokens per second: "
+             << static_cast<double>(infer_state.token_gen_count) / duration_ms *
+                    1000;
+    responses_.Erase(request_id);
   });
 
-  LOG_INFO << "Inference completed";
+  LOG_TRACE << "Done";
   return;
 };
 
@@ -489,9 +391,12 @@ void TensorrtllmEngine::LoadModel(
   model::LoadModelRequest request = model::fromJson(json_body);
   std::filesystem::path model_dir = request.model_path;
   model_type_ = GetModelType(request.model_path);
+  n_parallel_ = request.n_parallel;
+  batch_size_ = request.batch_size;
+  LOG_DEBUG << "n_parallel: " << n_parallel_;
 
   int ctx_len = request.ctx_len;
-  // We only support 2 models for now, it is ugly but it works :(
+  // We only support 3 models for now, it is ugly but it works :(
   if (model_type_ == ModelType::kOpenHermes) {
     user_prompt_ =
         request.user_prompt.empty() ? kOhUserPrompt : request.user_prompt;
@@ -507,10 +412,10 @@ void TensorrtllmEngine::LoadModel(
 
   std::filesystem::path tokenizer_model_name = model_dir / "tokenizer.model";
   if (model_type_ == ModelType::kLlama3) {
-    cortex_tokenizer =
+    cortex_tokenizer_ =
         std::make_unique<TiktokenTokenizer>(tokenizer_model_name.string());
   } else {
-    cortex_tokenizer =
+    cortex_tokenizer_ =
         std::make_unique<SentencePieceTokenizer>(tokenizer_model_name.string());
   }
 
@@ -519,40 +424,37 @@ void TensorrtllmEngine::LoadModel(
   std::filesystem::path json_file_name = model_dir / "config.json";
   auto json = GptJsonConfig::parse(json_file_name);
   auto config = json.getModelConfig();
-  model_config_ = std::make_unique<ModelConfig>(config);
   auto world_config = WorldConfig::mpi(1, json.getTensorParallelism(),
                                        json.getPipelineParallelism());
   LOG_INFO << "Loaded config from " << json_file_name.string();
-  // auto dtype = model_config->getDataType();
 
-  // Currently doing fixed session config
-  session_config_.maxBatchSize = batch_size_;
-  session_config_.maxBeamWidth = 1;  // Fixed for simplicity
-  session_config_.maxSequenceLength = ctx_len;
-  session_config_.cudaGraphMode = true;  // Fixed for simplicity
-
-  // Init gpt_session
   auto model_path = model_dir / json.engineFilename(world_config, model_id_);
+
+  runtime_opts_.beamWidth = 1;
+  runtime_opts_.trtEnginePath = request.model_path;
+  // TODO(sang) hardcode for now, this is related to model conversion parameter
+  runtime_opts_.maxNewTokens = 1024;
+
+  auto executor_config = tle::ExecutorConfig(runtime_opts_.beamWidth);
   try {
-    gpt_session = std::make_unique<GptSession>(session_config_, *model_config_,
-                                               world_config,
-                                               model_path.string(), logger_);
+    executor_ = std::make_unique<tle::Executor>(runtime_opts_.trtEnginePath,
+                                                tle::ModelType::kDECODER_ONLY,
+                                                executor_config);
   } catch (const std::exception& e) {
     LOG_ERROR << "Failed to load model: " << e.what();
-    LOG_INFO << "Retry once with smaller maxSequenceLength";
-    gpt_session.reset();
-    // Retry again with smaller maxSequenceLength once
-    session_config_.maxSequenceLength /= 2;
+    executor_.reset();
+    // Retry one more time
     try {
-      gpt_session = std::make_unique<GptSession>(session_config_,
-                                                 *model_config_, world_config,
-                                                 model_path.string(), logger_);
+      executor_ = std::make_unique<tle::Executor>(runtime_opts_.trtEnginePath,
+                                                  tle::ModelType::kDECODER_ONLY,
+                                                  executor_config);
     } catch (const std::exception& e) {
       LOG_ERROR << "Failed to load model: " << e.what();
-      gpt_session.reset();
-      cortex_tokenizer.reset();
+      executor_.reset();
+      cortex_tokenizer_.reset();
       q_.reset();
-      model_config_.reset();
+      res_thread_.reset();
+      req_thread_.reset();      
       logger_.reset();
       Json::Value json_resp;
       json_resp["message"] = "Failed to load model";
@@ -568,7 +470,15 @@ void TensorrtllmEngine::LoadModel(
 
   model_loaded_ = true;
   if (q_ == nullptr) {
-    q_ = std::make_unique<trantor::ConcurrentTaskQueue>(1, model_id_);
+    q_ = std::make_unique<trantor::ConcurrentTaskQueue>(n_parallel_, model_id_);
+  }
+  if (res_thread_ == nullptr) {
+    res_thread_ = std::make_unique<std::thread>(
+        &TensorrtllmEngine::WaitForResponses, this);
+  }
+  if (req_thread_ == nullptr) {
+    req_thread_ =
+        std::make_unique<std::thread>(&TensorrtllmEngine::HandleRequests, this);
   }
 
   // Model loaded successfully
@@ -596,10 +506,9 @@ void TensorrtllmEngine::UnloadModel(
     return;
   }
 
-  gpt_session.reset();
-  cortex_tokenizer.reset();
+  executor_.reset();
+  cortex_tokenizer_.reset();
   q_.reset();
-  model_config_.reset();
   logger_.reset();
   model_loaded_ = false;
 
@@ -663,6 +572,97 @@ void TensorrtllmEngine::GetModels(
   status["status_code"] = k200OK;
   callback(std::move(status), std::move(json_resp));
   LOG_INFO << "Running models responded";
+}
+
+void TensorrtllmEngine::HandleRequests() {
+  tle::OutputConfig outputConfig;
+  outputConfig.excludeInputFromOutput = runtime_opts_.excludeInputFromOutput;
+  tle::SamplingConfig samplingConfig(runtime_opts_.beamWidth);
+
+  while (model_loaded_) {
+    // process with batch of batch_size_ or timeout
+    std::unique_lock lk(req_mtx_);
+    req_cv_.wait_for(lk, std::chrono::milliseconds(10),
+                     [this] { return reqs_.size() >= batch_size_; });
+    // TODO(sang) Better way to do this?
+    std::vector<tle::Request> requests;
+    std::vector<int> req_ids;
+    while (!reqs_.empty()) {
+      auto req = tle::Request(
+          std::move(reqs_.front().second), runtime_opts_.maxNewTokens,
+          runtime_opts_.streaming, samplingConfig, outputConfig);
+      req.setStopWords(GetStopWords(model_type_));
+      requests.push_back(req);
+      req_ids.push_back(reqs_.front().first);
+      reqs_.pop();
+    }
+    if (!requests.empty()) {
+      // LOG_DEBUG << "Enqueue: " << requests.size() << " " << req_ids.size();
+      if (executor_->canEnqueueRequests()) {
+        auto res = executor_->enqueueRequests(requests);
+        if (res.size() == req_ids.size()) {
+          for (size_t i = 0; i < res.size(); i++) {
+            trt2c_ids_[res[i]] = req_ids[i];
+          }
+        } else {
+          LOG_WARN << "Something wrong happened, two sizes should always be "
+                      "the same";
+        }
+      }
+    }
+  }
+}
+
+bool TensorrtllmEngine::WaitForResponses() {
+  // Get the new tokens for each request
+  // TODO(sang) only works with beamWidth = 1 now
+  while (model_loaded_) {
+    std::chrono::milliseconds waitTime(10);
+    // Wait for any response
+    auto responses = executor_->awaitResponses(waitTime);
+    // Loop over the responses
+    for (auto const& response : responses) {
+      // Map back to our request id
+      auto request_id = trt2c_ids_[response.getRequestId()];
+
+      if (!response.hasError()) {
+        auto result = response.getResult();
+        std::lock_guard<std::mutex> guard(
+            responses_.Get(request_id).queue_mutex);
+        for (tle::SizeType32 beam = 0; beam < runtime_opts_.beamWidth; ++beam) {
+          auto& resp_tokens = result.outputTokenIds.at(beam);
+          responses_.Get(request_id).token_gen_count += resp_tokens.size();
+          RemoveSpecialTokens(resp_tokens, model_type_);
+          if (model_type_ == ModelType::kLlama3) {
+            responses_.Get(request_id)
+                .texts_to_stream.push(cortex_tokenizer_->Decode(resp_tokens));
+          } else {
+            for (auto res : resp_tokens) {
+              responses_.Get(request_id)
+                  .texts_to_stream.push(
+                      cortex_tokenizer_->DecodeWithSpace(res));
+              // LOG_INFO << responses_[request_id].texts_to_stream.back();
+            }
+          }
+        }
+        if (result.isFinal) {
+          LOG_INFO << "Request id " << request_id << " is completed.";
+          responses_.Get(request_id).texts_to_stream.push("[DONE]");
+        }
+      } else {
+        // Allow response with error only if awaitResponse processed a terminated request id
+        std::string err = "ReqId " + std::to_string(response.getRequestId()) +
+                          " has already been processed and was terminated.";
+        if (response.getErrorMsg() != err) {
+          TLLM_THROW("Request id %lu encountered error: %s", request_id,
+                     response.getErrorMsg().c_str());
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
 }
 
 extern "C" {

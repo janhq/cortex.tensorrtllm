@@ -1,5 +1,6 @@
 #pragma once
 
+#include <condition_variable>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -15,6 +16,7 @@
 #include "models/chat_completion_request.h"
 #include "models/load_model_request.h"
 #include "sentencepiece_processor.h"
+#include "tensorrt_llm/executor/executor.h"
 #include "tensorrt_llm/plugins/api/tllmPlugin.h"
 #include "tensorrt_llm/runtime/generationInput.h"
 #include "tensorrt_llm/runtime/generationOutput.h"
@@ -27,6 +29,24 @@
 #include "trantor/utils/Logger.h"
 
 using namespace tensorrt_llm::runtime;
+
+namespace tle = tensorrt_llm::executor;
+
+namespace fs = std::filesystem;
+
+struct RuntimeOptions {
+  std::string trtEnginePath;
+
+  bool streaming;
+  bool excludeInputFromOutput = true;
+  tle::SizeType32 maxNewTokens;
+  tle::SizeType32 beamWidth;
+  tle::SizeType32 timeoutMs;
+
+  bool useOrchestratorMode;
+  std::string workerExecutablePath;
+};
+
 // This class is file source reader from https://github.com/gh-markt/cpp-tiktoken/blob/master/ut/tests.cpp
 class TFilePathResourceReader : public IResourceReader {
  public:
@@ -86,21 +106,27 @@ class SentencePieceTokenizer : public Tokenizer {
   }
 
   std::string DecodeWithSpace(const int id) override {
+    std::lock_guard<std::mutex> l(m_);
     std::string text = processor.IdToPiece(id);
     ReplaceSubstring(text, "▁", " ");
     return text;
   }
 
   std::string Decode(const std::vector<int32_t> ids) override {
+    std::lock_guard<std::mutex> l(m_);
     std::string text = processor.DecodeIds(ids);
     return text;
   }
 
   std::vector<int> Encode(const std::string& input) override {
+    std::lock_guard<std::mutex> l(m_);
     std::vector<int> ids;
     processor.Encode(input, &ids);
     return ids;
   }
+
+ private:
+  std::mutex m_;
 };
 
 class TiktokenTokenizer : public Tokenizer {
@@ -116,14 +142,19 @@ class TiktokenTokenizer : public Tokenizer {
   }
 
   std::string Decode(const std::vector<int32_t> ids) override {
+    std::lock_guard<std::mutex> l(m_);
     std::string text = encoder->decode(ids);
     return text;
   }
 
   std::vector<int> Encode(const std::string& input) override {
+    std::lock_guard<std::mutex> l(m_);
     std::vector<int> ids = encoder->encode(input);
     return ids;
   }
+
+ private:
+  std::mutex m_;
 };
 enum class ModelType { kOpenHermes, kLlama3, kMistral };
 
@@ -135,7 +166,7 @@ struct InferenceState {
   size_t stop_word_match_len = 0;
   std::vector<std::string> sequence_openhermes = {"<",   "|", "im", "_",
                                                   "end", "|", ">"};
-  std::vector<std::string> sequence_mistral = {"[", "INST", "]"};
+  std::vector<std::string> sequence_mistral = {"</s>"};
   int token_gen_count = 0;
 
   void Reset() { stop_word_match_len = 0; }
@@ -188,20 +219,49 @@ class TensorrtllmEngine : public EngineI {
       std::shared_ptr<Json::Value> json_body,
       std::function<void(Json::Value&&, Json::Value&&)>&& callback) final;
 
-  GenerationInput::TensorPtr GetTensorSingleStopWordList(int stopToken);
-  GenerationInput CreateGenerationInput(std::vector<int32_t> inputIds);
-  GenerationOutput CreateGenerationOutput();
-  GenerationInput::TensorPtr GetTensorChatMLStopWordList();
-
-  std::unique_ptr<GptSession> gpt_session;
-  std::unique_ptr<Tokenizer> cortex_tokenizer;
-
  private:
   bool CheckModelLoaded(
       std::function<void(Json::Value&&, Json::Value&&)>& callback);
 
-  GptSession::Config session_config_{1, 1, 1};
-  std::unique_ptr<ModelConfig> model_config_;
+  // Function that hanlde incoming requests
+  void HandleRequests();
+
+  // Function that waits for responses and stores output tokens
+  bool WaitForResponses();
+
+  std::unique_ptr<Tokenizer> cortex_tokenizer_;
+  RuntimeOptions runtime_opts_;
+  std::unique_ptr<tle::Executor> executor_;
+
+  // TODO(sang) use taskqueue
+  // We are using 2 data structures to hold requests and responses
+  // We also need an unordered_map to map between tensorrt-llm request id to our request id
+  std::unique_ptr<std::thread> res_thread_;  // worker thread to handle responses
+  // TODO(sang) template
+  struct InfSyncMap {
+    InferenceState& Get(uint64_t k) {
+      std::lock_guard<std::mutex> l(m);
+      return data[k];
+    }
+
+    void Erase(uint64_t k) {
+      std::lock_guard<std::mutex> l(m);
+      data.erase(k);
+    }
+    std::mutex m;
+    std::unordered_map<tle::IdType, InferenceState> data;
+  };
+  InfSyncMap responses_;
+
+  std::unique_ptr<std::thread> req_thread_;  // worker thread to handle requests
+  std::queue<std::pair<int, tle::VecTokens>> reqs_;
+  std::condition_variable req_cv_;
+  std::mutex req_mtx_;
+  // map tensorrt request id to our request id
+  std::unordered_map<uint64_t, uint64_t> trt2c_ids_;
+
+  std::atomic<uint64_t> req_id_ = 0;
+
   std::shared_ptr<TllmLogger> logger_;
   std::string user_prompt_;
   std::string ai_prompt_;
@@ -213,6 +273,7 @@ class TensorrtllmEngine : public EngineI {
   std::atomic<bool> model_loaded_;
   std::unique_ptr<trantor::ConcurrentTaskQueue> q_;
   ModelType model_type_ = ModelType::kOpenHermes;
+  int n_parallel_ = 1;
 };
 
 }  // namespace tensorrtllm
