@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
         };
     resp.set_chunked_content_provider("text/event-stream",
                                       chunked_content_provider,
-                                      [](bool) { LOG_INFO << "Done"; });
+                                      [](bool) { });
   };
 
   const auto handle_load_model = [&](const httplib::Request& req,
