@@ -133,7 +133,7 @@ public:
             layers::DefaultDecodingParams::getFrequencyPenalty());
         noRepeatNgramSize = fuseValues<SizeType32>(
             configs, [&configs](size_t ci) { return configs[ci].noRepeatNgramSize; },
-            layers::DefaultDecodingParams::getNoRepeatNgramSize());
+            1 << 30);
         topK = fuseValues<SizeType32>(
             configs, [&configs](size_t ci) { return configs[ci].topK; }, layers::DefaultDecodingParams::getTopK());
         topP = fuseValues<FloatType>(

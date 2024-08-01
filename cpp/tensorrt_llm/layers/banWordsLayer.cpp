@@ -106,7 +106,7 @@ void BanWordsLayer<T>::setup(SizeType32 batchSize, SizeType32 beamWidth, SizeTyp
     mUseNoRepeatNgramSize |= useNoRepeatNgramSize;
     if (mUseNoRepeatNgramSize)
     {
-        fillBuffers(banWordsParams->noRepeatNgramSize, DefaultDecodingParams::getNoRepeatNgramSize(),
+        fillBuffers(banWordsParams->noRepeatNgramSize, 1 << 30,
             mNoRepeatNgramSize, mNoRepeatNgramSizeDevice, batchSlotsHost,
             std::make_pair(0.f, std::numeric_limits<float>::max()), "no_repeat_ngram_size");
     }
