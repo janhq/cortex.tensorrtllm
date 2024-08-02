@@ -116,10 +116,6 @@ TensorrtllmEngine::~TensorrtllmEngine() {
   if (res_thread_ && res_thread_->joinable()) {
     res_thread_->join();
   }
-
-  if (req_thread_ && req_thread_->joinable()) {
-    req_thread_->join();
-  }
 }
 
 void RemoveId(std::vector<int>& vec, int id) {
@@ -298,27 +294,24 @@ void TensorrtllmEngine::HandleChatCompletion(
   }
 
   runtime_opts_.streaming = true;
-  runtime_opts_.timeoutMs = 2000;
-  auto request_id = req_id_++;
-  {
-    std::lock_guard<std::mutex> l(req_mtx_);
-    reqs_.emplace(request_id, std::move(input_ids_host));
-    req_cv_.notify_one();
-  }
 
-  q_->runTaskInQueue([this, cb = std::move(callback), request_id]() {
-    std::chrono::time_point<std::chrono::system_clock> start;
-    bool first = true;
-    auto& infer_state = responses_.Get(request_id);
+  tle::OutputConfig outputConfig;
+  outputConfig.excludeInputFromOutput = runtime_opts_.excludeInputFromOutput;
+  tle::SamplingConfig samplingConfig(runtime_opts_.beamWidth);
+
+  auto req_id = executor_->enqueueRequest(
+      tle::Request(std::move(input_ids_host), runtime_opts_.maxNewTokens,
+                   runtime_opts_.streaming, samplingConfig, outputConfig,
+                   /*endId*/ std::nullopt, /*padId*/ std::nullopt,
+                   /*badWords*/ std::nullopt, GetStopWords(model_type_)));
+
+  q_->runTaskInQueue([this, cb = std::move(callback), req_id]() {
+    auto& infer_state = responses_.Get(req_id);
     LOG_INFO << "Preparing to run inference task queue...";
     while (true) {  // Continuously check if the queue is not empty
       std::unique_lock<std::mutex> lock(
           infer_state.queue_mutex);  // Lock the queue for exclusive access
       if (!infer_state.texts_to_stream.empty()) {
-        if (std::exchange(first, false)) {
-          first = false;
-          start = std::chrono::system_clock::now();
-        }
         std::string rew_text = infer_state.texts_to_stream.front();
         // std::cout << rew_text << std::endl;
         infer_state.texts_to_stream.pop();
@@ -371,14 +364,9 @@ void TensorrtllmEngine::HandleChatCompletion(
       }
     }
     // LOG_INFO << res_str;
-    auto end = std::chrono::system_clock::now();
-    auto duration_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
-            .count();
-    LOG_INFO << "Inference completed, generated tokens per second: "
-             << static_cast<double>(infer_state.token_gen_count) / duration_ms *
-                    1000;
-    responses_.Erase(request_id);
+
+    LOG_INFO << "Inference completed";
+    responses_.Erase(req_id);
   });
 
   LOG_TRACE << "Done";
@@ -388,6 +376,15 @@ void TensorrtllmEngine::HandleChatCompletion(
 void TensorrtllmEngine::LoadModel(
     std::shared_ptr<Json::Value> json_body,
     std::function<void(Json::Value&&, Json::Value&&)>&& callback) {
+  if (model_loaded_) {
+    LOG_INFO << "Model already loaded";
+    Json::Value json_resp;
+    json_resp["message"] = "Model already loaded";
+    Json::Value status_resp;
+    status_resp["status_code"] = k200OK;
+    callback(std::move(status_resp), std::move(json_resp));
+    return;
+  }
   model::LoadModelRequest request = model::fromJson(json_body);
   std::filesystem::path model_dir = request.model_path;
   model_type_ = GetModelType(request.model_path);
@@ -433,9 +430,14 @@ void TensorrtllmEngine::LoadModel(
   runtime_opts_.beamWidth = 1;
   runtime_opts_.trtEnginePath = request.model_path;
   // TODO(sang) hardcode for now, this is related to model conversion parameter
-  runtime_opts_.maxNewTokens = 1024;
+  runtime_opts_.maxNewTokens = request.ctx_len;
 
-  auto executor_config = tle::ExecutorConfig(runtime_opts_.beamWidth);
+  auto executor_config = tle::ExecutorConfig(
+      runtime_opts_.beamWidth, tle::SchedulerConfig(), tle::KvCacheConfig(),
+      /*enableChunkedContext*/ false, /*normalizeLogProbs*/ true,
+      tle::kDefaultIterStatsMaxIterations,
+      tle::kDefaultRequestStatsMaxIterations, tle::BatchingType::kINFLIGHT,
+      batch_size_);
   try {
     executor_ = std::make_unique<tle::Executor>(runtime_opts_.trtEnginePath,
                                                 tle::ModelType::kDECODER_ONLY,
@@ -454,7 +456,6 @@ void TensorrtllmEngine::LoadModel(
       cortex_tokenizer_.reset();
       q_.reset();
       res_thread_.reset();
-      req_thread_.reset();      
       logger_.reset();
       Json::Value json_resp;
       json_resp["message"] = "Failed to load model";
@@ -475,10 +476,6 @@ void TensorrtllmEngine::LoadModel(
   if (res_thread_ == nullptr) {
     res_thread_ = std::make_unique<std::thread>(
         &TensorrtllmEngine::WaitForResponses, this);
-  }
-  if (req_thread_ == nullptr) {
-    req_thread_ =
-        std::make_unique<std::thread>(&TensorrtllmEngine::HandleRequests, this);
   }
 
   // Model loaded successfully
@@ -574,45 +571,6 @@ void TensorrtllmEngine::GetModels(
   LOG_INFO << "Running models responded";
 }
 
-void TensorrtllmEngine::HandleRequests() {
-  tle::OutputConfig outputConfig;
-  outputConfig.excludeInputFromOutput = runtime_opts_.excludeInputFromOutput;
-  tle::SamplingConfig samplingConfig(runtime_opts_.beamWidth);
-
-  while (model_loaded_) {
-    // process with batch of batch_size_ or timeout
-    std::unique_lock lk(req_mtx_);
-    req_cv_.wait_for(lk, std::chrono::milliseconds(10),
-                     [this] { return reqs_.size() >= batch_size_; });
-    // TODO(sang) Better way to do this?
-    std::vector<tle::Request> requests;
-    std::vector<int> req_ids;
-    while (!reqs_.empty()) {
-      auto req = tle::Request(
-          std::move(reqs_.front().second), runtime_opts_.maxNewTokens,
-          runtime_opts_.streaming, samplingConfig, outputConfig);
-      req.setStopWords(GetStopWords(model_type_));
-      requests.push_back(req);
-      req_ids.push_back(reqs_.front().first);
-      reqs_.pop();
-    }
-    if (!requests.empty()) {
-      // LOG_DEBUG << "Enqueue: " << requests.size() << " " << req_ids.size();
-      if (executor_->canEnqueueRequests()) {
-        auto res = executor_->enqueueRequests(requests);
-        if (res.size() == req_ids.size()) {
-          for (size_t i = 0; i < res.size(); i++) {
-            trt2c_ids_[res[i]] = req_ids[i];
-          }
-        } else {
-          LOG_WARN << "Something wrong happened, two sizes should always be "
-                      "the same";
-        }
-      }
-    }
-  }
-}
-
 bool TensorrtllmEngine::WaitForResponses() {
   // Get the new tokens for each request
   // TODO(sang) only works with beamWidth = 1 now
@@ -623,7 +581,7 @@ bool TensorrtllmEngine::WaitForResponses() {
     // Loop over the responses
     for (auto const& response : responses) {
       // Map back to our request id
-      auto request_id = trt2c_ids_[response.getRequestId()];
+      auto request_id = response.getRequestId();
 
       if (!response.hasError()) {
         auto result = response.getResult();
@@ -633,6 +591,8 @@ bool TensorrtllmEngine::WaitForResponses() {
           auto& resp_tokens = result.outputTokenIds.at(beam);
           responses_.Get(request_id).token_gen_count += resp_tokens.size();
           RemoveSpecialTokens(resp_tokens, model_type_);
+          if (resp_tokens.empty())
+            continue;
           if (model_type_ == ModelType::kLlama3) {
             responses_.Get(request_id)
                 .texts_to_stream.push(cortex_tokenizer_->Decode(resp_tokens));

@@ -223,9 +223,6 @@ class TensorrtllmEngine : public EngineI {
   bool CheckModelLoaded(
       std::function<void(Json::Value&&, Json::Value&&)>& callback);
 
-  // Function that hanlde incoming requests
-  void HandleRequests();
-
   // Function that waits for responses and stores output tokens
   bool WaitForResponses();
 
@@ -233,34 +230,24 @@ class TensorrtllmEngine : public EngineI {
   RuntimeOptions runtime_opts_;
   std::unique_ptr<tle::Executor> executor_;
 
-  // TODO(sang) use taskqueue
-  // We are using 2 data structures to hold requests and responses
-  // We also need an unordered_map to map between tensorrt-llm request id to our request id
-  std::unique_ptr<std::thread> res_thread_;  // worker thread to handle responses
-  // TODO(sang) template
+  std::unique_ptr<std::thread>
+      res_thread_;  // worker thread to handle responses
+  template <typename T>
   struct InfSyncMap {
-    InferenceState& Get(uint64_t k) {
+    T& Get(uint64_t k) {
       std::lock_guard<std::mutex> l(m);
       return data[k];
     }
 
     void Erase(uint64_t k) {
       std::lock_guard<std::mutex> l(m);
-      data.erase(k);
+      if (data.find(k) != data.end())
+        data.erase(k);
     }
     std::mutex m;
-    std::unordered_map<tle::IdType, InferenceState> data;
+    std::unordered_map<tle::IdType, T> data;
   };
-  InfSyncMap responses_;
-
-  std::unique_ptr<std::thread> req_thread_;  // worker thread to handle requests
-  std::queue<std::pair<int, tle::VecTokens>> reqs_;
-  std::condition_variable req_cv_;
-  std::mutex req_mtx_;
-  // map tensorrt request id to our request id
-  std::unordered_map<uint64_t, uint64_t> trt2c_ids_;
-
-  std::atomic<uint64_t> req_id_ = 0;
+  InfSyncMap<InferenceState> responses_;
 
   std::shared_ptr<TllmLogger> logger_;
   std::string user_prompt_;

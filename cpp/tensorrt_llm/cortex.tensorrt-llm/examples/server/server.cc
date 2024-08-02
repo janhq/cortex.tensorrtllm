@@ -28,14 +28,14 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  auto process_stream_res = [&server](httplib::Response& resp,
+  auto process_stream_res = [](httplib::Response& resp,
                                       std::shared_ptr<SyncQueue> q) {
     const auto chunked_content_provider =
-        [&server, q](size_t size, httplib::DataSink& sink) {
+        [q](size_t size, httplib::DataSink& sink) {
           while (true) {
             auto [status, res] = q->wait_and_pop();
             auto str = res["data"].asString();
-            LOG_TRACE << "data: " << str;
+            // LOG_INFO << "data: " << str;
 
             if (!sink.write(str.c_str(), str.size())) {
               LOG_WARN << "Failed to write";
@@ -60,6 +60,7 @@ int main(int argc, char** argv) {
     resp.set_header("Access-Control-Allow-Origin",
                     req.get_header_value("Origin"));
     auto req_body = std::make_shared<Json::Value>();
+    Json::Reader r;
     r.parse(req.body, *req_body);
     server.engine_->LoadModel(
         req_body, [&server, &resp](Json::Value status, Json::Value res) {
@@ -68,12 +69,14 @@ int main(int argc, char** argv) {
           resp.status = status["status_code"].asInt();
         });
   };
+  
 
   const auto handle_completions = [&](const httplib::Request& req,
                                       httplib::Response& resp) {
     resp.set_header("Access-Control-Allow-Origin",
                     req.get_header_value("Origin"));
     auto req_body = std::make_shared<Json::Value>();
+    Json::Reader r;
     r.parse(req.body, *req_body);
     bool is_stream = (*req_body).get("stream", false).asBool();
     // This is an async call, need to use queue
@@ -91,7 +94,7 @@ int main(int argc, char** argv) {
 
   LOG_INFO << "HTTP server listening: " << hostname << ":" << port;
   svr->new_task_queue = [] {
-    return new httplib::ThreadPool(5);
+    return new httplib::ThreadPool(10);
   };
   // run the HTTP server in a thread - see comment below
   std::thread t([&]() {
