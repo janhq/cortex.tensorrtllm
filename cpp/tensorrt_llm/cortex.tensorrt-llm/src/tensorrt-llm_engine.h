@@ -159,16 +159,6 @@ class TiktokenTokenizer : public Tokenizer {
 enum class ModelType { kOpenHermes, kLlama3, kMistral };
 
 struct InferenceState {
-  int prev_pos{0};
-  bool is_finished;
-  std::queue<std::string> texts_to_stream;
-  std::mutex queue_mutex;  // Mutex to protect access to textsToStream
-  size_t stop_word_match_len = 0;
-  std::vector<std::string> sequence_openhermes = {"<",   "|", "im", "_",
-                                                  "end", "|", ">"};
-  std::vector<std::string> sequence_mistral = {"</s>"};
-  int token_gen_count = 0;
-
   void Reset() { stop_word_match_len = 0; }
 
   bool IsComplete(ModelType model_type) const {
@@ -188,6 +178,50 @@ struct InferenceState {
       return sequence_mistral[index];
     }
   }
+
+  void Enqueue(std::string s) {
+    std::lock_guard<std::mutex> l(m);
+    texts_to_stream.push(std::move(s));
+    cv.notify_one();
+  }
+
+  std::string WaitAndPop() {
+    std::unique_lock<std::mutex> l(m);
+    cv.wait(l, [this](){return !texts_to_stream.empty();});
+    auto s = texts_to_stream.front();
+    texts_to_stream.pop();
+    return s;
+  }
+
+  size_t GetStopMatchLen() const {
+    std::lock_guard<std::mutex> l(m);
+    return stop_word_match_len;
+  }
+
+  void AddStopMatch() {
+    std::lock_guard<std::mutex> l(m);
+    stop_word_match_len++;
+  }
+
+  void ResetStopMatch() {
+    std::lock_guard<std::mutex> l(m);
+    stop_word_match_len = 1;
+  }
+
+  void AddTokenGenCount(int count) {
+    std::lock_guard<std::mutex> l(m);
+    token_gen_count += count;
+  }
+
+ private:
+  std::queue<std::string> texts_to_stream;
+  mutable std::mutex m;  // Mutex to protect access to texts_to_stream
+  std::condition_variable cv;
+  size_t stop_word_match_len = 0;
+  std::vector<std::string> sequence_openhermes = {"<",   "|", "im", "_",
+                                                  "end", "|", ">"};
+  std::vector<std::string> sequence_mistral = {"</s>"};
+  int token_gen_count = 0;
 };
 
 namespace tensorrtllm {
@@ -230,10 +264,6 @@ class TensorrtllmEngine : public EngineI {
   void Reset();
 
  private:
-  std::unique_ptr<Tokenizer> cortex_tokenizer_;
-  RuntimeOptions runtime_opts_;
-  std::unique_ptr<tle::Executor> executor_;
-
   std::unique_ptr<std::thread>
       res_thread_;  // worker thread to handle responses
   template <typename T>
@@ -248,11 +278,16 @@ class TensorrtllmEngine : public EngineI {
       if (data.find(k) != data.end())
         data.erase(k);
     }
+
+   private:
     std::mutex m;
-    std::unordered_map<tle::IdType, T> data;
+    std::unordered_map<uint64_t, T> data;
   };
   InfSyncMap<InferenceState> responses_;
 
+  std::unique_ptr<Tokenizer> cortex_tokenizer_;
+  RuntimeOptions runtime_opts_;
+  std::unique_ptr<tle::Executor> executor_;
   std::shared_ptr<TllmLogger> logger_;
   std::string user_prompt_;
   std::string ai_prompt_;

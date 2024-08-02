@@ -128,22 +128,22 @@ bool HandleMatch(std::string const& rew_text, InferenceState* infer_state,
   if (infer_state->IsComplete(model_type)) {
     return false;
   }
-  if (infer_state->stop_word_match_len == 0) {
+  if (infer_state->GetStopMatchLen() == 0) {
     if ((model_type == ModelType::kOpenHermes &&
          rew_text.find('<') != std::string::npos) ||
         (model_type != ModelType::kOpenHermes &&
          rew_text.find('[') != std::string::npos)) {
-      infer_state->stop_word_match_len++;  // Move to next state
+      infer_state->AddStopMatch();  // Move to next state
       return true;
     }
   } else if (rew_text == infer_state->GetSequence(
-                             model_type, infer_state->stop_word_match_len)) {
-    infer_state->stop_word_match_len++;  // Move to next state
+                             model_type, infer_state->GetStopMatchLen())) {
+    infer_state->AddStopMatch();  // Move to next state
     return true;
-  } else if (infer_state->stop_word_match_len > 0 &&
+  } else if (infer_state->GetStopMatchLen() > 0 &&
              rew_text == infer_state->GetSequence(model_type, 0u)) {
-    infer_state->stop_word_match_len =
-        1;  // Restart from first match if sequence breaks but matches start
+    infer_state
+        ->ResetStopMatch();  // Restart from first match if sequence breaks but matches start
     return true;
   } else {
     infer_state->Reset();
@@ -294,6 +294,7 @@ void TensorrtllmEngine::HandleChatCompletion(
   }
 
   runtime_opts_.streaming = true;
+  runtime_opts_.maxNewTokens = request.max_tokens;
 
   tle::OutputConfig outputConfig;
   outputConfig.excludeInputFromOutput = runtime_opts_.excludeInputFromOutput;
@@ -309,59 +310,46 @@ void TensorrtllmEngine::HandleChatCompletion(
     auto& infer_state = responses_.Get(req_id);
     LOG_INFO << "Preparing to run inference task queue...";
     while (true) {  // Continuously check if the queue is not empty
-      std::unique_lock<std::mutex> lock(
-          infer_state.queue_mutex);  // Lock the queue for exclusive access
-      if (!infer_state.texts_to_stream.empty()) {
-        std::string rew_text = infer_state.texts_to_stream.front();
-        // std::cout << rew_text << std::endl;
-        infer_state.texts_to_stream.pop();
-        if (HandleMatch(rew_text, &infer_state, cb, model_type_) &&
-            rew_text != "[DONE]") {
-          continue;
-        };
+      auto rew_text = infer_state.WaitAndPop();
+      // std::cout << rew_text << std::endl;
+      if (HandleMatch(rew_text, &infer_state, cb, model_type_) &&
+          rew_text != "[DONE]") {
+        continue;
+      };
 
-        if (rew_text == "[DONE]") {
-          const std::string str =
-              "data: " +
-              tensorrtllm_utils::CreateReturnJson(
-                  tensorrtllm_utils::GenerateRandomString(20), model_id_, "",
-                  "stop") +
-              "\n\n" + "data: [DONE]" + "\n\n";
-
-          infer_state.is_finished = true;
-
-          Json::Value resp_data;
-          resp_data["data"] = str;
-          Json::Value status;
-          status["is_done"] = true;
-          status["has_error"] = false;
-          status["is_stream"] = true;
-          status["status_code"] = k200OK;
-          cb(std::move(status), std::move(resp_data));
-          break;
-        }
-        const std::string text_to_stream =
-            "data: " +
-            tensorrtllm_utils::CreateReturnJson(
-                tensorrtllm_utils::GenerateRandomString(20), model_id_,
-                rew_text) +
-            "\n\n";
-
-        lock.unlock();  // Unlock as soon as possible
-        // std::cout << rew_text;
+      if (rew_text == "[DONE]") {
+        const std::string str = "data: " +
+                                tensorrtllm_utils::CreateReturnJson(
+                                    tensorrtllm_utils::GenerateRandomString(20),
+                                    model_id_, "", "stop") +
+                                "\n\n" + "data: [DONE]" + "\n\n";
 
         Json::Value resp_data;
-        resp_data["data"] = text_to_stream;
+        resp_data["data"] = str;
         Json::Value status;
-        status["is_done"] = false;
+        status["is_done"] = true;
         status["has_error"] = false;
         status["is_stream"] = true;
         status["status_code"] = k200OK;
         cb(std::move(status), std::move(resp_data));
-      } else {
-        // If the queue is empty, release the lock and wait before trying again
-        lock.unlock();
+        break;
       }
+      const std::string text_to_stream =
+          "data: " +
+          tensorrtllm_utils::CreateReturnJson(
+              tensorrtllm_utils::GenerateRandomString(20), model_id_,
+              rew_text) +
+          "\n\n";
+      // std::cout << rew_text;
+
+      Json::Value resp_data;
+      resp_data["data"] = text_to_stream;
+      Json::Value status;
+      status["is_done"] = false;
+      status["has_error"] = false;
+      status["is_stream"] = true;
+      status["status_code"] = k200OK;
+      cb(std::move(status), std::move(resp_data));
     }
     // LOG_INFO << res_str;
 
@@ -433,8 +421,6 @@ void TensorrtllmEngine::LoadModel(
 
   runtime_opts_.beamWidth = 1;
   runtime_opts_.trtEnginePath = request.model_path;
-  // TODO(sang) hardcode for now, this is related to model conversion parameter
-  runtime_opts_.maxNewTokens = request.ctx_len;
 
   auto executor_config = tle::ExecutorConfig(
       runtime_opts_.beamWidth, tle::SchedulerConfig(), tle::KvCacheConfig(),
@@ -575,9 +561,9 @@ bool TensorrtllmEngine::WaitForResponses() {
   // Get the new tokens for each request
   // TODO(sang) only works with beamWidth = 1 now
   while (model_loaded_) {
-    std::chrono::milliseconds waitTime(10);
+    std::chrono::milliseconds wait_time(10);
     // Wait for any response
-    auto responses = executor_->awaitResponses(waitTime);
+    auto responses = executor_->awaitResponses(wait_time);
     // Loop over the responses
     for (auto const& response : responses) {
       // Map back to our request id
@@ -585,37 +571,35 @@ bool TensorrtllmEngine::WaitForResponses() {
 
       if (!response.hasError()) {
         auto result = response.getResult();
-        std::lock_guard<std::mutex> guard(
-            responses_.Get(request_id).queue_mutex);
+
         for (tle::SizeType32 beam = 0; beam < runtime_opts_.beamWidth; ++beam) {
           auto& resp_tokens = result.outputTokenIds.at(beam);
-          responses_.Get(request_id).token_gen_count += resp_tokens.size();
+          responses_.Get(request_id).AddTokenGenCount(resp_tokens.size());
           RemoveSpecialTokens(resp_tokens, model_type_);
           if (resp_tokens.empty())
             continue;
           if (model_type_ == ModelType::kLlama3) {
             responses_.Get(request_id)
-                .texts_to_stream.push(cortex_tokenizer_->Decode(resp_tokens));
+                .Enqueue(cortex_tokenizer_->Decode(resp_tokens));
           } else {
             for (auto res : resp_tokens) {
               responses_.Get(request_id)
-                  .texts_to_stream.push(
-                      cortex_tokenizer_->DecodeWithSpace(res));
+                  .Enqueue(cortex_tokenizer_->DecodeWithSpace(res));
               // LOG_INFO << responses_[request_id].texts_to_stream.back();
             }
           }
         }
         if (result.isFinal) {
           LOG_INFO << "Request id " << request_id << " is completed.";
-          responses_.Get(request_id).texts_to_stream.push("[DONE]");
+          responses_.Get(request_id).Enqueue("[DONE]");
         }
       } else {
         // Allow response with error only if awaitResponse processed a terminated request id
         std::string err = "ReqId " + std::to_string(response.getRequestId()) +
                           " has already been processed and was terminated.";
         if (response.getErrorMsg() != err) {
-          TLLM_THROW("Request id %lu encountered error: %s", request_id,
-                     response.getErrorMsg().c_str());
+          LOG_ERROR << "Request id " << request_id << " encountered error "
+                    << response.getErrorMsg().c_str();
           return false;
         }
       }
