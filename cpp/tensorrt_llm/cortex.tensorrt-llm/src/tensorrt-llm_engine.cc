@@ -316,6 +316,9 @@ void TensorrtllmEngine::HandleChatCompletion(
           rew_text != "[DONE]") {
         continue;
       };
+      // Simple bugfix for Mistral and Openhermes new line character
+      if (rew_text == "<0x0A>")
+        rew_text = "\n";
 
       if (rew_text == "[DONE]") {
         const std::string str = "data: " +
