@@ -69,6 +69,21 @@ int main(int argc, char** argv) {
           resp.status = status["status_code"].asInt();
         });
   };
+
+  const auto handle_unload_model = [&](const httplib::Request& req,
+                                     httplib::Response& resp) {
+    resp.set_header("Access-Control-Allow-Origin",
+                    req.get_header_value("Origin"));
+    auto req_body = std::make_shared<Json::Value>();
+    Json::Reader r;
+    r.parse(req.body, *req_body);
+    server.engine_->UnloadModel(
+        req_body, [&server, &resp](Json::Value status, Json::Value res) {
+          resp.set_content(res.toStyledString().c_str(),
+                           "application/json; charset=utf-8");
+          resp.status = status["status_code"].asInt();
+        });
+  };
   
 
   const auto handle_completions = [&](const httplib::Request& req,
@@ -90,6 +105,7 @@ int main(int argc, char** argv) {
 
   // Use POST since httplib does not read request body for GET method
   svr->Post("/inferences/tensorrt-llm/loadmodel", handle_load_model);
+  svr->Post("/inferences/tensorrt-llm/unloadmodel", handle_unload_model);
   svr->Post("/v1/chat/completions", handle_completions);
 
   LOG_INFO << "HTTP server listening: " << hostname << ":" << port;

@@ -226,6 +226,10 @@ class TensorrtllmEngine : public EngineI {
   // Function that waits for responses and stores output tokens
   bool WaitForResponses();
 
+  // Release all resources and states
+  void Reset();
+
+ private:
   std::unique_ptr<Tokenizer> cortex_tokenizer_;
   RuntimeOptions runtime_opts_;
   std::unique_ptr<tle::Executor> executor_;

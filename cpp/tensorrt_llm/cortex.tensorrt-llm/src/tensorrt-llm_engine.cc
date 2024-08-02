@@ -376,7 +376,8 @@ void TensorrtllmEngine::HandleChatCompletion(
 void TensorrtllmEngine::LoadModel(
     std::shared_ptr<Json::Value> json_body,
     std::function<void(Json::Value&&, Json::Value&&)>&& callback) {
-  if (model_loaded_) {
+  model::LoadModelRequest request = model::fromJson(json_body);
+  if (model_loaded_ && model_type_ == GetModelType(request.model_path)) {
     LOG_INFO << "Model already loaded";
     Json::Value json_resp;
     json_resp["message"] = "Model already loaded";
@@ -384,8 +385,11 @@ void TensorrtllmEngine::LoadModel(
     status_resp["status_code"] = k200OK;
     callback(std::move(status_resp), std::move(json_resp));
     return;
+  } else {
+    LOG_DEBUG << "Reset all resources and states before loading new model";
+    Reset();
   }
-  model::LoadModelRequest request = model::fromJson(json_body);
+
   std::filesystem::path model_dir = request.model_path;
   model_type_ = GetModelType(request.model_path);
   n_parallel_ = request.n_parallel;
@@ -503,11 +507,7 @@ void TensorrtllmEngine::UnloadModel(
     return;
   }
 
-  executor_.reset();
-  cortex_tokenizer_.reset();
-  q_.reset();
-  logger_.reset();
-  model_loaded_ = false;
+  Reset();
 
   Json::Value json_resp;
   json_resp["message"] = "Model unloaded successfully";
@@ -623,6 +623,19 @@ bool TensorrtllmEngine::WaitForResponses() {
   }
 
   return true;
+}
+
+void TensorrtllmEngine::Reset() {
+  LOG_INFO << "Reset all resources and states";
+  model_loaded_ = false;
+  if (res_thread_ && res_thread_->joinable()) {
+    res_thread_->join();
+    res_thread_.reset();
+  }
+  executor_.reset();
+  cortex_tokenizer_.reset();
+  q_.reset();
+  logger_.reset();
 }
 
 extern "C" {
