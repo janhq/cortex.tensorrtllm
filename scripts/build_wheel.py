@@ -84,7 +84,7 @@ def main(*,
         build_run('git submodule update --init --recursive')
     on_windows = platform.system() == "Windows"
     requirements_filename = "requirements-dev-windows.txt" if on_windows else "requirements-dev.txt"
-    build_run(f"\"{sys.executable}\" -m pip install -r {requirements_filename}")
+    # build_run(f"\"{sys.executable}\" -m pip install -r {requirements_filename}")
     # Ensure TRT is installed on windows to prevent surprises.
     reqs = check_output([sys.executable, "-m", "pip", "freeze"])
     installed_packages = [r.decode().split("==")[0] for r in reqs.split()]
@@ -105,7 +105,7 @@ def main(*,
         if cuda_architectures is not None else "")
 
     cmake_def_args = []
-    cmake_generator = ""
+    cmake_generator = "-GNinja"
 
     hardware_arch = platform.machine()
 
@@ -223,6 +223,10 @@ def main(*,
             build_dir /
             "tensorrt_llm/kernels/decoderMaskedMultiheadAttention/decoderXQAImplJIT/nvrtcWrapper/libtensorrt_llm_nvrtc_wrapper.so",
             lib_dir / "libtensorrt_llm_nvrtc_wrapper.so")
+        copy(
+            build_dir /
+            "tensorrt_llm/kernels/decoderMaskedMultiheadAttention/libdecoder_attention.so",
+            lib_dir / "libdecoder_attention.so")
 
     bin_dir = pkg_dir / "bin"
     if bin_dir.exists():
