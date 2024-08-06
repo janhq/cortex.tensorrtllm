@@ -11,7 +11,9 @@ pybind11-stubgen
 pytest-cov
 pytest-forked
 pytest-xdist
-pywin32
 rouge_score
 cloudpickle
 typing-extensions==4.8.0
+jsonlines==4.0.0
+jieba==0.42.1
+rouge==1.0.1

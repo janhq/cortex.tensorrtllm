@@ -38,17 +38,17 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: "windows"
-            name: "cuda-12-4"
-            runs-on: "windows-tensorrt-llm-0-10-0-cuda-12-4"
-            run-e2e: false
-            s3-key-prefix: "windows-tensorrt-llm-tensorrt-llm-0-10-0-ccache"
-            ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
+          # - os: "windows"
+          #   name: "cuda-12-4"
+          #   runs-on: "windows-tensorrt-llm-0-11-0-cuda-12-4"
+          #   run-e2e: false
+          #   s3-key-prefix: "windows-tensorrt-llm-tensorrt-llm-0-11-0-ccache"
+          #   ccache-dir: 'C:\Users\ContainerAdministrator\AppData\Local\ccache'
           - os: "linux"
             name: "cuda-12-4"
-            runs-on: "linux-tensorrt-llm-0-10-0-cuda-12-4"
+            runs-on: "linux-tensorrt-llm-0-11-0-cuda-12-4"
             run-e2e: false
-            s3-key-prefix: "linux-tensorrt-llm-tensorrt-llm-0-10-0-sccache"
+            s3-key-prefix: "linux-tensorrt-llm-tensorrt-llm-0-11-0-ccache"
             ccache-dir: '/home/runner/.cache/ccache'
     permissions:
       contents: write

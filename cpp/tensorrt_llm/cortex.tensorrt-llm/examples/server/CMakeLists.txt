@@ -15,7 +15,7 @@
 # C++17
 # cortex.tensorrt-llm init
 cmake_minimum_required(VERSION 3.5)
-project(server)
+project(server-example)
 find_package(Threads REQUIRED)
 
 if(UNIX AND NOT APPLE)
