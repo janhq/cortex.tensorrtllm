@@ -385,7 +385,7 @@ void TensorrtllmEngine::LoadModel(
   model_type_ = GetModelType(request.model_path);
   n_parallel_ = request.n_parallel;
   batch_size_ = request.batch_size;
-  LOG_DEBUG << "n_parallel: " << n_parallel_;
+  LOG_DEBUG << "n_parallel: " << n_parallel_ << ", batch_size: " << batch_size_;
 
   int ctx_len = request.ctx_len;
   // We only support 3 models for now, it is ugly but it works :(
