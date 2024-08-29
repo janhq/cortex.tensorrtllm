@@ -324,7 +324,7 @@ class TensorrtllmEngine : public EngineI {
   void GetModels(
       std::shared_ptr<Json::Value> json_body,
       std::function<void(Json::Value&&, Json::Value&&)>&& callback) final;
-  void SetFileLogger();
+  void SetLoggerOption(const Json::Value& json_body);
  private:
   bool CheckModelLoaded(
       std::function<void(Json::Value&&, Json::Value&&)>& callback);

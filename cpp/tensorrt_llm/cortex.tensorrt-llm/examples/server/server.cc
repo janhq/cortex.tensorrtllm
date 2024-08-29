@@ -19,7 +19,6 @@ int main(int argc, char** argv) {
   }
 
   Server server;
-  server.engine_->SetFileLogger();
   Json::Reader r;
   auto svr = std::make_unique<httplib::Server>();
 

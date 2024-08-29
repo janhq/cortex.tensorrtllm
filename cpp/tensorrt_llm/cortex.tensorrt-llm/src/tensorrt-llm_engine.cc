@@ -62,22 +62,6 @@ enum class Llama3Template : int32_t {
 // "<|end_of_text|>", "<|eot_id|>"
 const std::list<std::vector<int32_t>> Llama3StopWords = {{128001}, {128009}};
 
-int SetLoggerOption(const Json::Value& json_body){
-  if (!json_body["log_option"].isNull()) {   
-    int log_option = json_body["log_option"].asInt();
-    if (log_option != kFileLoggerOption){
-      // Revert to default trantor logger output function
-      trantor::Logger::setOutputFunction(
-        [](const char* msg, const uint64_t len) {
-          fwrite(msg, 1, static_cast<size_t>(len), stdout);
-        },
-        []() { fflush(stdout); });
-        return log_option;
-    }
-   }
-   return 0;
-}
-
 // TODO(sang) This is fragile, just a temporary solution. Maybe can use a config file or model architect, etc...
 bool IsOpenhermes(const std::string& s) {
   if (s.find("mistral") != std::string::npos ||
@@ -128,7 +112,8 @@ void RemoveSpecialTokens(std::vector<int32_t>& v, ModelType model_type) {
   }
 }
 }  // namespace
-TensorrtllmEngine::TensorrtllmEngine(int log_option){
+TensorrtllmEngine::TensorrtllmEngine(int log_option) {
+  trantor::Logger::setLogLevel(trantor::Logger::kError);
   if (log_option == kFileLoggerOption) {
     std::filesystem::create_directories(log_folder);
     asynce_file_logger_ = std::make_unique<trantor::AsyncFileLogger>();
@@ -150,7 +135,6 @@ TensorrtllmEngine::~TensorrtllmEngine() {
   }
   asynce_file_logger_.reset();
 }
-void TensorrtllmEngine::SetFileLogger() {}
 
 void RemoveId(std::vector<int>& vec, int id) {
   vec.erase(std::remove(vec.begin(), vec.end(), id), vec.end());
@@ -398,10 +382,51 @@ void TensorrtllmEngine::HandleChatCompletion(
   return;
 };
 
+void TensorrtllmEngine::SetLoggerOption(const Json::Value& json_body) {
+  if (!json_body["log_option"].isNull()) {
+    int log_option = json_body["log_option"].asInt();
+    if (log_option != kFileLoggerOption) {
+      // Revert to default trantor logger output function
+      trantor::Logger::setOutputFunction(
+          [](const char* msg, const uint64_t len) {
+            fwrite(msg, 1, static_cast<size_t>(len), stdout);
+          },
+          []() { fflush(stdout); });
+    }
+  }
+  logger_ = std::make_shared<TllmFileLogger>();
+  if (!json_body["log_level"].isNull()) {
+    std::string log_level = json_body["log_level"].asString();
+    if (log_level == "trace")
+    {
+      logger_->setLevel(nvinfer1::ILogger::Severity::kINFO);
+      trantor::Logger::setLogLevel(trantor::Logger::kTrace);
+    } else if (log_level == "debug") {
+      trantor::Logger::setLogLevel(trantor::Logger::kDebug);
+      logger_->setLevel(nvinfer1::ILogger::Severity::kINFO);
+    } else if (log_level == "info") {
+      trantor::Logger::setLogLevel(trantor::Logger::kInfo);
+      logger_->setLevel(nvinfer1::ILogger::Severity::kINFO);
+    } else if (log_level == "warn") {
+      trantor::Logger::setLogLevel(trantor::Logger::kWarn);
+      logger_->setLevel(nvinfer1::ILogger::Severity::kWARNING);
+    } else if (log_level == "fatal") {
+      trantor::Logger::setLogLevel(trantor::Logger::kFatal);
+      logger_->setLevel(nvinfer1::ILogger::Severity::kWARNING);
+    } else {
+      trantor::Logger::setLogLevel(trantor::Logger::kError);
+      logger_->setLevel(nvinfer1::ILogger::Severity::kERROR);
+    }
+  }
+  else{
+      logger_->setLevel(nvinfer1::ILogger::Severity::kWARNING);
+  }
+}
+
 void TensorrtllmEngine::LoadModel(
     std::shared_ptr<Json::Value> json_body,
     std::function<void(Json::Value&&, Json::Value&&)>&& callback) {
-    int log_option = SetLoggerOption(*json_body);
+  SetLoggerOption(*json_body);
   model::LoadModelRequest request = model::fromJson(json_body);
   if (model_loaded_ && model_type_ == GetModelType(request.model_path)) {
     LOG_INFO << "Model already loaded";
@@ -433,14 +458,6 @@ void TensorrtllmEngine::LoadModel(
   }
   model_id_ = GetModelId(*json_body);
 
-  logger_ = std::make_shared<TllmFileLogger>();
-  if(log_option ==0){
-    logger_->setLevel(nvinfer1::ILogger::Severity::kWARNING);
-  }
-  else{
-    logger_->setLevel(nvinfer1::ILogger::Severity::kINFO);
-  }
-  
   initTrtLlmPlugins(logger_.get());
 
   std::filesystem::path tokenizer_model_name = model_dir / "tokenizer.model";
