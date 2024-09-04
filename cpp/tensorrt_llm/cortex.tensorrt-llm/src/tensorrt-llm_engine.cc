@@ -27,6 +27,7 @@ constexpr const int k200OK = 200;
 constexpr const int k400BadRequest = 400;
 constexpr const int k409Conflict = 409;
 constexpr const int k500InternalServerError = 500;
+constexpr const int kFileLoggerOption = 0;
 
 // '<', '|', 'im', '_', 'end', '|', '>', '</s>', '<|im_end|>'
 const std::list<std::vector<int32_t>> kOpenhermesStopWords = {
@@ -111,11 +112,28 @@ void RemoveSpecialTokens(std::vector<int32_t>& v, ModelType model_type) {
   }
 }
 }  // namespace
+TensorrtllmEngine::TensorrtllmEngine(int log_option) {
+  trantor::Logger::setLogLevel(trantor::Logger::kError);
+  if (log_option == kFileLoggerOption) {
+    std::filesystem::create_directories(log_folder);
+    asynce_file_logger_ = std::make_unique<trantor::AsyncFileLogger>();
+    asynce_file_logger_->setFileName(log_base_name);
+    asynce_file_logger_->startLogging();
+    trantor::Logger::setOutputFunction(
+        [&](const char* msg, const uint64_t len) {
+          asynce_file_logger_->output(msg, len);
+        },
+        [&]() { asynce_file_logger_->flush(); });
+    asynce_file_logger_->setFileSizeLimit(max_log_file_size);
+  }
+}
+
 TensorrtllmEngine::~TensorrtllmEngine() {
   model_loaded_ = false;
   if (res_thread_ && res_thread_->joinable()) {
     res_thread_->join();
   }
+  asynce_file_logger_.reset();
 }
 
 void RemoveId(std::vector<int>& vec, int id) {
@@ -364,9 +382,51 @@ void TensorrtllmEngine::HandleChatCompletion(
   return;
 };
 
+void TensorrtllmEngine::SetLoggerOption(const Json::Value& json_body) {
+  if (!json_body["log_option"].isNull()) {
+    int log_option = json_body["log_option"].asInt();
+    if (log_option != kFileLoggerOption) {
+      // Revert to default trantor logger output function
+      trantor::Logger::setOutputFunction(
+          [](const char* msg, const uint64_t len) {
+            fwrite(msg, 1, static_cast<size_t>(len), stdout);
+          },
+          []() { fflush(stdout); });
+    }
+  }
+  logger_ = std::make_shared<TllmFileLogger>();
+  if (!json_body["log_level"].isNull()) {
+    std::string log_level = json_body["log_level"].asString();
+    if (log_level == "trace")
+    {
+      logger_->setLevel(nvinfer1::ILogger::Severity::kINFO);
+      trantor::Logger::setLogLevel(trantor::Logger::kTrace);
+    } else if (log_level == "debug") {
+      trantor::Logger::setLogLevel(trantor::Logger::kDebug);
+      logger_->setLevel(nvinfer1::ILogger::Severity::kINFO);
+    } else if (log_level == "info") {
+      trantor::Logger::setLogLevel(trantor::Logger::kInfo);
+      logger_->setLevel(nvinfer1::ILogger::Severity::kINFO);
+    } else if (log_level == "warn") {
+      trantor::Logger::setLogLevel(trantor::Logger::kWarn);
+      logger_->setLevel(nvinfer1::ILogger::Severity::kWARNING);
+    } else if (log_level == "fatal") {
+      trantor::Logger::setLogLevel(trantor::Logger::kFatal);
+      logger_->setLevel(nvinfer1::ILogger::Severity::kWARNING);
+    } else {
+      trantor::Logger::setLogLevel(trantor::Logger::kError);
+      logger_->setLevel(nvinfer1::ILogger::Severity::kERROR);
+    }
+  }
+  else{
+      logger_->setLevel(nvinfer1::ILogger::Severity::kWARNING);
+  }
+}
+
 void TensorrtllmEngine::LoadModel(
     std::shared_ptr<Json::Value> json_body,
     std::function<void(Json::Value&&, Json::Value&&)>&& callback) {
+  SetLoggerOption(*json_body);
   model::LoadModelRequest request = model::fromJson(json_body);
   if (model_loaded_ && model_type_ == GetModelType(request.model_path)) {
     LOG_INFO << "Model already loaded";
@@ -398,8 +458,6 @@ void TensorrtllmEngine::LoadModel(
   }
   model_id_ = GetModelId(*json_body);
 
-  logger_ = std::make_shared<TllmLogger>();
-  logger_->setLevel(nvinfer1::ILogger::Severity::kINFO);
   initTrtLlmPlugins(logger_.get());
 
   std::filesystem::path tokenizer_model_name = model_dir / "tokenizer.model";

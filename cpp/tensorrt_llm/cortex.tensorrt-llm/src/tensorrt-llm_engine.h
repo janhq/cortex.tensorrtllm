@@ -16,6 +16,7 @@
 #include "models/chat_completion_request.h"
 #include "models/load_model_request.h"
 #include "sentencepiece_processor.h"
+#include "tensorrt_llm/common/logger.h"
 #include "tensorrt_llm/executor/executor.h"
 #include "tensorrt_llm/plugins/api/tllmPlugin.h"
 #include "tensorrt_llm/runtime/generationInput.h"
@@ -27,12 +28,82 @@
 #include "tensorrt_llm/runtime/tllmLogger.h"
 #include "trantor/utils/ConcurrentTaskQueue.h"
 #include "trantor/utils/Logger.h"
+#include <trantor/utils/AsyncFileLogger.h>
 
 using namespace tensorrt_llm::runtime;
 
 namespace tle = tensorrt_llm::executor;
 
 namespace fs = std::filesystem;
+
+namespace tc = tensorrt_llm::common;
+
+constexpr char log_base_name[] = "logs/cortex";
+constexpr char log_folder[] = "logs";
+constexpr size_t max_log_file_size = 20000000; // ~20mb
+
+// This class is inspired by https://github.com/NVIDIA/TensorRT-LLM/blob/main/cpp/tensorrt_llm/runtime/tllmLogger.cpp
+class TllmFileLogger : public nvinfer1::ILogger {
+ public:
+  void log(Severity severity,
+           nvinfer1::AsciiChar const* msg) noexcept override {
+    switch (severity) {
+      case nvinfer1::ILogger::Severity::kINTERNAL_ERROR:
+        LOG_ERROR << "[TensorRT-LLM][ERROR] " << msg;
+        break;
+      case nvinfer1::ILogger::Severity::kERROR:
+        LOG_ERROR << "[TensorRT-LLM][ERROR] " << msg;
+        break;
+      case nvinfer1::ILogger::Severity::kWARNING:
+        LOG_WARN << "[TensorRT-LLM][WARN] " << msg;
+        break;
+      case nvinfer1::ILogger::Severity::kINFO:
+        LOG_INFO << "[TensorRT-LLM][INFO] " << msg;
+        break;
+      case nvinfer1::ILogger::Severity::kVERBOSE:
+        LOG_DEBUG << "[TensorRT-LLM][DEBUG] " << msg;
+        break;
+      default:
+        LOG_TRACE << "[TensorRT-LLM][TRACE] " << msg;
+        break;
+    }
+  }
+  Severity getLevel() {
+    auto* const logger = tc::Logger::getLogger();
+    switch (logger->getLevel())
+    {
+    case tc::Logger::Level::ERROR: return nvinfer1::ILogger::Severity::kERROR;
+    case tc::Logger::Level::WARNING: return nvinfer1::ILogger::Severity::kWARNING;
+    case tc::Logger::Level::INFO: return nvinfer1::ILogger::Severity::kINFO;
+    case tc::Logger::Level::DEBUG:
+    case tc::Logger::Level::TRACE: return nvinfer1::ILogger::Severity::kVERBOSE;
+    default: return nvinfer1::ILogger::Severity::kINTERNAL_ERROR;
+    }
+  };
+
+  void setLevel(Severity level) {
+    auto* const logger = tc::Logger::getLogger();
+    switch (level) {
+      case nvinfer1::ILogger::Severity::kINTERNAL_ERROR:
+        logger->setLevel(tc::Logger::Level::ERROR);
+        break;
+      case nvinfer1::ILogger::Severity::kERROR:
+        logger->setLevel(tc::Logger::Level::ERROR);
+        break;
+      case nvinfer1::ILogger::Severity::kWARNING:
+        logger->setLevel(tc::Logger::Level::WARNING);
+        break;
+      case nvinfer1::ILogger::Severity::kINFO:
+        logger->setLevel(tc::Logger::Level::INFO);
+        break;
+      case nvinfer1::ILogger::Severity::kVERBOSE:
+        logger->setLevel(tc::Logger::Level::TRACE);
+        break;
+      default:
+        TLLM_THROW("Unsupported severity");
+    }
+  };
+};
 
 struct RuntimeOptions {
   std::string trtEnginePath;
@@ -187,7 +258,7 @@ struct InferenceState {
 
   std::string WaitAndPop() {
     std::unique_lock<std::mutex> l(m);
-    cv.wait(l, [this](){return !texts_to_stream.empty();});
+    cv.wait(l, [this]() { return !texts_to_stream.empty(); });
     auto s = texts_to_stream.front();
     texts_to_stream.pop();
     return s;
@@ -228,6 +299,7 @@ namespace tensorrtllm {
 
 class TensorrtllmEngine : public EngineI {
  public:
+  TensorrtllmEngine(int log_option = 0);
   ~TensorrtllmEngine() final;
   // ### Interface ###
   void HandleChatCompletion(
@@ -252,7 +324,7 @@ class TensorrtllmEngine : public EngineI {
   void GetModels(
       std::shared_ptr<Json::Value> json_body,
       std::function<void(Json::Value&&, Json::Value&&)>&& callback) final;
-
+  void SetLoggerOption(const Json::Value& json_body);
  private:
   bool CheckModelLoaded(
       std::function<void(Json::Value&&, Json::Value&&)>& callback);
@@ -288,7 +360,7 @@ class TensorrtllmEngine : public EngineI {
   std::unique_ptr<Tokenizer> cortex_tokenizer_;
   RuntimeOptions runtime_opts_;
   std::unique_ptr<tle::Executor> executor_;
-  std::shared_ptr<TllmLogger> logger_;
+  std::shared_ptr<TllmFileLogger> logger_;
   std::string user_prompt_;
   std::string ai_prompt_;
   std::string system_prompt_;
@@ -300,6 +372,7 @@ class TensorrtllmEngine : public EngineI {
   std::unique_ptr<trantor::ConcurrentTaskQueue> q_;
   ModelType model_type_ = ModelType::kOpenHermes;
   int n_parallel_ = 1;
+  std::unique_ptr<trantor::AsyncFileLogger> asynce_file_logger_;
 };
 
 }  // namespace tensorrtllm
