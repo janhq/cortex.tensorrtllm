@@ -29,6 +29,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           release_name: "${{ env.VERSION }}"
           draft: true
+          generate_release_notes: true
           prerelease: false
 
   build-and-test:
@@ -73,7 +74,7 @@ jobs:
         run: |
           Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
           refreshenv
-          aws s3 cp s3://${{ secrets.MINIO_BUCKET_NAME }}/${{ matrix.s3-key-prefix }} ${{ matrix.ccache-dir }} --recursive --endpoint ${{ secrets.MINIO_ENDPOINT }} --cli-read-timeout 0
+          aws s3 sync s3://${{ secrets.MINIO_BUCKET_NAME }}/${{ matrix.s3-key-prefix }} ${{ matrix.ccache-dir }} --endpoint ${{ secrets.MINIO_ENDPOINT }} --cli-read-timeout 0
         env:
           AWS_ACCESS_KEY_ID: "${{ secrets.MINIO_ACCESS_KEY_ID }}"
           AWS_SECRET_ACCESS_KEY: "${{ secrets.MINIO_SECRET_ACCESS_KEY }}"
@@ -83,7 +84,7 @@ jobs:
         if: runner.os == 'Linux'
         continue-on-error: true
         run: |
-          aws s3 cp s3://${{ secrets.MINIO_BUCKET_NAME }}/${{ matrix.s3-key-prefix }} ${{ matrix.ccache-dir }} --recursive --endpoint ${{ secrets.MINIO_ENDPOINT }} --cli-read-timeout 0
+          aws s3 sync s3://${{ secrets.MINIO_BUCKET_NAME }}/${{ matrix.s3-key-prefix }} ${{ matrix.ccache-dir }} --endpoint ${{ secrets.MINIO_ENDPOINT }} --cli-read-timeout 0
         env:
           AWS_ACCESS_KEY_ID: "${{ secrets.MINIO_ACCESS_KEY_ID }}"
           AWS_SECRET_ACCESS_KEY: "${{ secrets.MINIO_SECRET_ACCESS_KEY }}"
@@ -95,6 +96,7 @@ jobs:
           make build-deps
 
       - name: Build
+        id: build-and-test
         working-directory: cpp
         run: |
           make build
@@ -109,8 +111,35 @@ jobs:
         run: |
           make package
 
+      - name: Calculate SHA512 Checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          CertUtil -hashfile ./cpp/tensorrt_llm/cortex.tensorrt-llm/cortex.tensorrt-llm.tar.gz SHA512 | Select-String -Pattern "^[0-9a-fA-F]+$" | Out-File sha512.txt
+          $size = (Get-Item ./cpp/tensorrt_llm/cortex.tensorrt-llm/cortex.tensorrt-llm.tar.gz).length
+          echo "checksum=$(Get-Content sha512.txt)" >> $env:GITHUB_ENV
+          echo "size=$size" >> $env:GITHUB_ENV
+
+      - name: Calculate SHA512 Checksum (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sha512sum ./cpp/tensorrt_llm/cortex.tensorrt-llm/cortex.tensorrt-llm.tar.gz | awk '{ print $1 }' > sha512.txt
+          size=$(stat -c%s ./cpp/tensorrt_llm/cortex.tensorrt-llm/cortex.tensorrt-llm.tar.gz)
+          echo "checksum=$(cat sha512.txt)" >> $GITHUB_ENV
+          echo "size=$size" >> $GITHUB_ENV
+
+      ## Write for matrix outputs workaround 
+      - uses: cloudposse/github-action-matrix-outputs-write@v1
+        id: out
+        with:
+          matrix-step-name: ${{ github.job }}
+          matrix-key: ${{ matrix.os }}-${{ matrix.name }}
+          outputs: |-
+            sha512: ${{ env.checksum }}
+            size: ${{ env.size }}
+
       - name: Upload Artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: cortex.tensorrt-llm-${{ matrix.os }}-${{ matrix.name }}
           path: cpp/tensorrt_llm/cortex.tensorrt-llm/cortex.tensorrt-llm.tar.gz
@@ -131,7 +160,7 @@ jobs:
         run: |
           Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
           refreshenv
-          aws s3 cp ${{ matrix.ccache-dir }} s3://${{ secrets.MINIO_BUCKET_NAME }}/${{ matrix.s3-key-prefix }} --recursive --endpoint ${{ secrets.MINIO_ENDPOINT }}
+          aws s3 sync ${{ matrix.ccache-dir }} s3://${{ secrets.MINIO_BUCKET_NAME }}/${{ matrix.s3-key-prefix }} --endpoint ${{ secrets.MINIO_ENDPOINT }}
         env:
           AWS_ACCESS_KEY_ID: "${{ secrets.MINIO_ACCESS_KEY_ID }}"
           AWS_SECRET_ACCESS_KEY: "${{ secrets.MINIO_SECRET_ACCESS_KEY }}"
@@ -141,32 +170,91 @@ jobs:
         continue-on-error: true
         if: always() && runner.os == 'Linux'
         run: |
-          aws s3 cp ${{ matrix.ccache-dir }} s3://${{ secrets.MINIO_BUCKET_NAME }}/${{ matrix.s3-key-prefix }} --recursive --endpoint ${{ secrets.MINIO_ENDPOINT }}
+          aws s3 sync ${{ matrix.ccache-dir }} s3://${{ secrets.MINIO_BUCKET_NAME }}/${{ matrix.s3-key-prefix }} --endpoint ${{ secrets.MINIO_ENDPOINT }}
         env:
           AWS_ACCESS_KEY_ID: "${{ secrets.MINIO_ACCESS_KEY_ID }}"
           AWS_SECRET_ACCESS_KEY: "${{ secrets.MINIO_SECRET_ACCESS_KEY }}"
           AWS_DEFAULT_REGION: "${{ secrets.MINIO_REGION }}"
 
-  update_release_draft:
-    needs: [build-and-test]
-    permissions:
-      # write permission is required to create a github release
-      contents: write
-      # write permission is required for autolabeler
-      # otherwise, read permission is required at least
-      pull-requests: write
+  ## Read matrix outputs 
+  read:
     runs-on: ubuntu-latest
+    needs: [build-and-test]
     steps:
-      # (Optional) GitHub Enterprise requires GHE_HOST variable set
-      #- name: Set GHE_HOST
-      #  run: |
-      #    echo "GHE_HOST=${GITHUB_SERVER_URL##https:\/\/}" >> $GITHUB_ENV
+      - uses: cloudposse/github-action-matrix-outputs-read@v1
+        id: read
+        with:
+          matrix-step-name: build-and-test
+    outputs:
+        result: "${{ steps.read.outputs.result }}"
 
-      # Drafts your next Release notes as Pull Requests are merged into "master"
-      - uses: release-drafter/release-drafter@v5
-        # (Optional) specify config name to use, relative to .github/. Default: release-drafter.yml
-        # with:
-        #   config-name: my-config.yml
-        #   disable-autolabeler: true
+
+  create-checksum-file:
+    runs-on: ubuntu-20-04
+    permissions:
+      contents: write
+    needs: [read, create-draft-release]
+    steps:
+      - name: Download cuda dependencies from s3 and create checksum
+        run: |
+          wget http://minio.jan.ai:9000/cicd/dist/cuda-dependencies/12.4/linux/cuda.tar.gz -O /tmp/cuda-12-4-linux-amd64.tar.gz
+          # wget http://minio.jan.ai:9000/cicd/dist/cuda-dependencies/12.4/windows/cuda.tar.gz -O /tmp/cuda-12-4-windows-amd64.tar.gz
+
+          version=${{ needs.create-draft-release.outputs.version }}
+          outputs=${{ toJson(needs.read.outputs.result) }}
+
+          echo $outputs
+
+          echo "version: $version" > checksum.yml
+          echo "files:" >> checksum.yml
+
+          echo "$outputs" | jq -r --arg version "$version" '
+            .sha512 as $sha512 |
+            .size as $size |
+            (.sha512 | keys[]) as $key |
+            "- url: cortex.llamacpp-\($version)-\($key).tar.gz\n  sha512: >-\n    \($sha512[$key])\n  size: \($size[$key])"
+          ' >> checksum.yml
+
+          echo "- url: cuda-12-4-linux-amd64.tar.gz" >> checksum.yml
+          echo "  sha512: >-" >> checksum.yml
+          echo "    $(sha512sum /tmp/cuda-12-4-linux-amd64.tar.gz | awk '{ print $1 }')" >> checksum.yml
+          echo "  size: $(stat -c%s /tmp/cuda-12-4-linux-amd64.tar.gz)" >> checksum.yml
+
+          # echo "- url: cuda-12-4-windows-amd64.tar.gz" >> checksum.yml
+          # echo "  sha512: >-" >> checksum.yml
+          # echo "    $(sha512sum /tmp/cuda-12-4-windows-amd64.tar.gz | awk '{ print $1 }')" >> checksum.yml
+          # echo "  size: $(stat -c%s /tmp/cuda-12-4-windows-amd64.tar.gz)" >> checksum.yml
+          cat checksum.yml
+
+      - name: Upload checksum.yml to GitHub Release
+        uses: actions/upload-release-asset@v1
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-draft-release.outputs.upload_url }}
+          asset_path: ./checksum.yml
+          asset_name: checksum.yml
+          asset_content_type: text/yaml
+
+      - name: upload cuda-12-4-linux-amd64.tar.gz to Github Release
+        uses: actions/upload-release-asset@v1
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-draft-release.outputs.upload_url }}
+          asset_path: /tmp/cuda-12-4-linux-amd64.tar.gz
+          asset_name: cuda-12-4-linux-amd64.tar.gz
+          asset_content_type: application/gzip
+      
+      # - name: upload cuda-12-4-windows-amd64.tar.gz to Github Release
+      #   uses: actions/upload-release-asset@v1
+      #   if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   with:
+      #     upload_url: ${{ needs.create-draft-release.outputs.upload_url }}
+      #     asset_path: /tmp/cuda-12-4-windows-amd64.tar.gz
+      #     asset_name: cuda-12-4-windows-amd64.tar.gz
+      #     asset_content_type: application/gzip
